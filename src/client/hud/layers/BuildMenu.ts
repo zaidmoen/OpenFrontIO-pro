@@ -30,6 +30,8 @@ const warshipIcon = assetUrl("images/BattleshipIconWhite.svg");
 const cityIcon = assetUrl("images/CityIconWhite.svg");
 const factoryIcon = assetUrl("images/FactoryIconWhite.svg");
 const barracksIcon = assetUrl("images/BarracksIconWhite.svg");
+const infantryIcon = assetUrl("images/SoldierIcon.svg");
+const sniperIcon = assetUrl("images/ShieldIconWhite.svg");
 const goldCoinIcon = assetUrl("images/GoldCoinIcon.svg");
 const mirvIcon = assetUrl("images/MIRVIcon.svg");
 const missileSiloIcon = assetUrl("images/MissileSiloIconWhite.svg");
@@ -124,6 +126,20 @@ export const buildTable: BuildItemDisplay[][] = [
       icon: barracksIcon,
       description: "build_menu.desc.barracks",
       key: "unit_type.barracks",
+      countable: true,
+    },
+    {
+      unitType: UnitType.Infantry,
+      icon: infantryIcon,
+      description: "build_menu.desc.infantry",
+      key: "unit_type.infantry",
+      countable: true,
+    },
+    {
+      unitType: UnitType.Sniper,
+      icon: sniperIcon,
+      description: "build_menu.desc.sniper",
+      key: "unit_type.sniper",
       countable: true,
     },
   ],

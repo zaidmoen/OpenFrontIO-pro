@@ -104,6 +104,8 @@ export interface AttackLogicInput {
   } | null;
   /** A defense post owned by the defender is in range of the tile. */
   defenderHasDefensePost: boolean;
+  /** A defending sniper positioned near an elevated border tile. */
+  defenderHasSniper?: boolean;
   /** Fraction of land tiles with fallout, or null if the tile has no fallout. */
   falloutRatio: number | null;
   /** Tiles on the attack front this tick (plus jitter); fixed for the tick. */
@@ -711,6 +713,12 @@ export class Config {
           upgradable: true,
         };
         break;
+      case UnitType.Infantry:
+        info = { cost: this.costWrapper(() => 12_000, UnitType.Infantry) };
+        break;
+      case UnitType.Sniper:
+        info = { cost: this.costWrapper(() => 18_000, UnitType.Sniper) };
+        break;
       case UnitType.Train:
         info = {
           cost: () => 0n,
@@ -909,6 +917,15 @@ export class Config {
     if (defender !== null && input.defenderHasDefensePost) {
       mag *= this.defensePostDefenseBonus();
       tileCost *= this.defensePostSpeedBonus();
+    }
+    if (
+      defender !== null &&
+      input.defenderHasSniper &&
+      (input.terrain === TerrainType.Highland ||
+        input.terrain === TerrainType.Mountain)
+    ) {
+      mag *= 1.25;
+      tileCost *= 1.25;
     }
     if (input.falloutRatio !== null) {
       const fallout = this.falloutDefenseModifier(input.falloutRatio);

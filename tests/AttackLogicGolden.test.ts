@@ -58,6 +58,23 @@ const TERRAINS = [
 ] as const;
 
 describe("attackLogic golden values", () => {
+  test("snipers reinforce elevated defense, not plains", () => {
+    const scenario = {
+      attackTroops: 5_000,
+      defender: defender({ numTiles: 100, troops: 8_000 }),
+    };
+    const mountain = run({ ...scenario, terrain: TerrainType.Mountain });
+    const sniperMountain = run({
+      ...scenario,
+      terrain: TerrainType.Mountain,
+      defenderHasSniper: true,
+    });
+    expect(sniperMountain.attackerLoss).toBeGreaterThan(mountain.attackerLoss);
+    expect(sniperMountain.tickFraction).toBeGreaterThan(mountain.tickFraction);
+    expect(run({ ...scenario, defenderHasSniper: true })).toEqual(
+      run(scenario),
+    );
+  });
   test("barracks military power changes combat effectiveness", () => {
     const battle = (attackerPower = 1, defenderPower = 1) =>
       run({

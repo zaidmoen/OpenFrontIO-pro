@@ -1611,6 +1611,18 @@ export class PlayerImpl implements Player {
         return this.tradeShipSpawn(targetTile);
       case UnitType.Train:
         return this.landBasedUnitSpawn(targetTile);
+      case UnitType.Infantry:
+      case UnitType.Sniper:
+        if (
+          this.mg.owner(targetTile) !== this ||
+          this.troops() < (unitType === UnitType.Infantry ? 300 : 120) ||
+          this.units(UnitType.Barracks).every(
+            (b) => !b.isActive() || b.isUnderConstruction(),
+          ) ||
+          this.unitCount(unitType) >= 6
+        )
+          return false;
+        return this.landBasedUnitSpawn(targetTile);
       case UnitType.MissileSilo:
       case UnitType.DefensePost:
       case UnitType.SAMLauncher:

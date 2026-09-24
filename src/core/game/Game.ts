@@ -210,6 +210,8 @@ export enum UnitType {
   Train = "Train",
   Factory = "Factory",
   Barracks = "Barracks",
+  Infantry = "Infantry",
+  Sniper = "Sniper",
 }
 
 export enum TrainType {
@@ -245,6 +247,8 @@ export const Structures = unitTypeGroup([
 export const BuildMenus = unitTypeGroup([
   ...Structures.types,
   ...BuildableAttacks.types,
+  UnitType.Infantry,
+  UnitType.Sniper,
 ] as const);
 
 export const PlayerBuildable = unitTypeGroup([
@@ -314,6 +318,8 @@ export interface UnitParamsMap {
   [UnitType.Factory]: Record<string, never>;
 
   [UnitType.Barracks]: Record<string, never>;
+  [UnitType.Infantry]: { troops: number };
+  [UnitType.Sniper]: { troops: number };
 
   [UnitType.MissileSilo]: Record<string, never>;
 

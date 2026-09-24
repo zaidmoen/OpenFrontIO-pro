@@ -207,6 +207,12 @@ export class MoveWarshipIntentEvent implements GameEvent {
     public readonly tile: number,
   ) {}
 }
+export class MoveSquadIntentEvent implements GameEvent {
+  constructor(
+    public readonly unitId: number,
+    public readonly tile: number,
+  ) {}
+}
 
 export class SendKickPlayerIntentEvent implements GameEvent {
   constructor(public readonly target: string) {}
@@ -333,6 +339,9 @@ export class Transport {
 
     this.subscribe(MoveWarshipIntentEvent, (e) => {
       this.onMoveWarshipEvent(e);
+    });
+    this.subscribe(MoveSquadIntentEvent, (e) => {
+      this.sendIntent({ type: "move_squad", unitId: e.unitId, tile: e.tile });
     });
 
     this.subscribe(SendDeleteUnitIntentEvent, (e) =>

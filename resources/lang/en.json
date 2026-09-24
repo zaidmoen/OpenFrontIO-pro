@@ -159,6 +159,8 @@
     "desc": {
       "atom_bomb": "Small explosion",
       "barracks": "Adds 8% military power per level, up to 40%",
+      "infantry": "Train 300 infantry at a completed barracks. Click the squad, then a friendly tile to move or an enemy border to attack.",
+      "sniper": "Train 120 snipers at a completed barracks. Click the squad, then an enemy tile for ranged fire. Highlands and mountains improve their effectiveness.",
       "city": "Increases max population",
       "defense_post": "Increases defenses of nearby borders",
       "factory": "Creates railroads and spawns trains",
@@ -2139,6 +2141,8 @@
     "boat": "Boat",
     "city": "City",
     "barracks": "Barracks",
+    "infantry": "Infantry",
+    "sniper": "Sniper",
     "defense_post": "Defense Post",
     "factory": "Factory",
     "hydrogen_bomb": "Hydrogen Bomb",
