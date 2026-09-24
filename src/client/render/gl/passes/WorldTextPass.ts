@@ -78,6 +78,8 @@ export interface AttackTroopLabel {
   colorR: number;
   colorG: number;
   colorB: number;
+  alpha?: number;
+  screenScale?: number;
 }
 
 function formatGold(gold: number): string {
@@ -471,11 +473,11 @@ export class WorldTextPass {
         this.instanceData[off + 1] = label.y;
         this.instanceData[off + 2] = this.cursors[i];
         this.instanceData[off + 3] = this.charCodes[i];
-        this.instanceData[off + 4] = 1;
+        this.instanceData[off + 4] = label.alpha ?? 1;
         this.instanceData[off + 5] = label.colorR;
         this.instanceData[off + 6] = label.colorG;
         this.instanceData[off + 7] = label.colorB;
-        this.instanceData[off + 8] = attackScale;
+        this.instanceData[off + 8] = attackScale * (label.screenScale ?? 1);
         this.instanceData[off + 9] = ATTACK_LABEL_OUTLINE_WIDTH;
         count++;
       }

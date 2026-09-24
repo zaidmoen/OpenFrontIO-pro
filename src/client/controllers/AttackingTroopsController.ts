@@ -9,12 +9,17 @@
  * to what the old CSS transition did.
  */
 import { EventBus } from "../../core/EventBus";
-import { Cell, PlayerType, UnitType } from "../../core/game/Game";
+import { Cell, PlayerType, TerrainType, UnitType } from "../../core/game/Game";
 import { UserSettings } from "../../core/game/UserSettings";
 import { Controller } from "../Controller";
-import { AlternateViewEvent, UnitSelectionEvent } from "../InputHandler";
+import {
+  AlternateViewEvent,
+  MouseMoveEvent,
+  UnitSelectionEvent,
+} from "../InputHandler";
 import { MapRenderer } from "../render/gl";
 import type { AttackTroopLabel } from "../render/gl/passes/WorldTextPass";
+import { TransformHandler } from "../TransformHandler";
 import { renderTroops, translateText } from "../Utils";
 import type { UnitView } from "../view";
 import { GameView } from "../view";
@@ -73,12 +78,25 @@ export class AttackingTroopsController implements Controller {
   private squads: UnitView[] = [];
   /** Reused buffer pushed to the view each frame. */
   private labelBuf: AttackTroopLabel[] = [];
+  private mouseTile: Cell | null = null;
+  private previousSquads = new Map<
+    number,
+    { x: number; y: number; transfersToAttack: boolean }
+  >();
+  private destroyedSquads: Array<{
+    x: number;
+    y: number;
+    startMs: number;
+    seed: number;
+  }> = [];
+  private routeCache = new Map<string, number[]>();
 
   constructor(
     private readonly game: GameView,
     private readonly eventBus: EventBus,
     private readonly userSettings: UserSettings,
     private readonly view: MapRenderer,
+    private readonly transformHandler: TransformHandler,
   ) {}
 
   init() {
@@ -93,6 +111,13 @@ export class AttackingTroopsController implements Controller {
           ? event.unit.id()
           : null;
     });
+    this.eventBus.on(MouseMoveEvent, (event) => {
+      const cell = this.transformHandler.screenToWorldCoordinates(
+        event.x,
+        event.y,
+      );
+      this.mouseTile = this.game.isValidCoord(cell.x, cell.y) ? cell : null;
+    });
 
     const drive = () => {
       this.pushLabels();
@@ -106,7 +131,34 @@ export class AttackingTroopsController implements Controller {
   }
 
   tick() {
+    this.routeCache.clear();
     this.squads = this.game.units(UnitType.Infantry, UnitType.Sniper);
+    const now = performance.now();
+    const visibleSquads = new Set<number>();
+    for (const unit of this.squads) {
+      if (!unit.isActive()) continue;
+      visibleSquads.add(unit.id());
+      const target = unit.targetTile();
+      const transfersToAttack =
+        unit.type() === UnitType.Infantry &&
+        target !== undefined &&
+        this.game.owner(target) !== unit.owner();
+      this.previousSquads.set(unit.id(), {
+        x: this.game.x(unit.tile()),
+        y: this.game.y(unit.tile()),
+        transfersToAttack,
+      });
+    }
+    for (const [id, position] of this.previousSquads) {
+      if (visibleSquads.has(id)) continue;
+      if (!position.transfersToAttack) {
+        this.destroyedSquads.push({ ...position, startMs: now, seed: id });
+      }
+      this.previousSquads.delete(id);
+    }
+    this.destroyedSquads = this.destroyedSquads.filter(
+      (effect) => now - effect.startMs < 650,
+    );
     if (!this.userSettings.attackingTroopsOverlay() || this.alternateView) {
       if (this.attacks.size > 0) this.attacks.clear();
       return;
@@ -171,7 +223,7 @@ export class AttackingTroopsController implements Controller {
   }
 
   private ensureEntry(attackID: string, troops: number, isIncoming: boolean) {
-    const text = renderTroops(troops);
+    const text = `o ${renderTroops(troops)}`;
     const existing = this.attacks.get(attackID);
     if (existing) {
       existing.text = text;
@@ -272,17 +324,213 @@ export class AttackingTroopsController implements Controller {
       if (!unit.isActive()) continue;
       const own = unit.state.ownerID === ownID;
       const selected = unit.id() === this.selectedSquadId;
+      const maxTroops = unit.type() === UnitType.Infantry ? 300 : 120;
+      const strength = Math.max(0.25, Math.min(1, unit.troops() / maxTroops));
       out.push({
         x: this.game.x(unit.tile()),
         y: this.game.y(unit.tile()),
-        text: `${selected ? "> " : ""}${translateText(unit.type() === UnitType.Infantry ? "unit_type.infantry" : "unit_type.sniper")} ${renderTroops(unit.troops())}`,
+        text: `${selected ? "> " : ""}${unit.type() === UnitType.Infantry ? "I" : "S"} o ${renderTroops(unit.troops())}`,
         colorR: selected ? 1 : own ? OUTGOING_R : INCOMING_R,
         colorG: selected ? 0.85 : own ? OUTGOING_G : INCOMING_G,
         colorB: selected ? 0.2 : own ? OUTGOING_B : INCOMING_B,
+        alpha: 0.38 + strength * 0.62,
+        screenScale: 0.72 + strength * 0.4,
       });
+
+      const target = unit.targetTile();
+      const preview =
+        selected && this.mouseTile
+          ? this.game.ref(this.mouseTile.x, this.mouseTile.y)
+          : target;
+      if (preview !== undefined && (selected || target !== undefined)) {
+        const route = this.routeTo(unit, preview);
+        this.appendRouteDots(out, route, now, own);
+      }
     }
+
+    this.appendTerrainIntel(out);
+    this.appendDeathEffects(out, now);
 
     this.labelBuf = out;
     this.view.setAttackTroopLabels(out);
+  }
+
+  private appendRouteDots(
+    out: AttackTroopLabel[],
+    route: number[],
+    now: number,
+    own: boolean,
+  ): void {
+    if (route.length < 2) return;
+    const colorR = own ? OUTGOING_R : INCOMING_R;
+    const colorG = own ? OUTGOING_G : INCOMING_G;
+    const colorB = own ? OUTGOING_B : INCOMING_B;
+    let placed = 0;
+    for (let i = 2; i < route.length && placed < 120; i += 2) {
+      placed++;
+      const tile = route[i];
+      out.push({
+        x: this.game.x(tile),
+        y: this.game.y(tile),
+        text: ".",
+        colorR,
+        colorG,
+        colorB,
+        alpha: 0.42 + (Math.sin(now / 180 - placed) + 1) * 0.22,
+        screenScale: 0.85,
+      });
+    }
+    const target = route[route.length - 1];
+    out.push({
+      x: this.game.x(target),
+      y: this.game.y(target),
+      text: "+",
+      colorR,
+      colorG,
+      colorB,
+      alpha: 0.9,
+    });
+  }
+
+  private routeTo(unit: UnitView, target: number): number[] {
+    const start = unit.tile();
+    const cacheKey = `${unit.id()}:${start}:${target}`;
+    const cached = this.routeCache.get(cacheKey);
+    if (cached) return cached;
+
+    const targetOwner = this.game.owner(target);
+    if (
+      targetOwner.isPlayer() &&
+      targetOwner !== unit.owner() &&
+      unit.owner().isFriendly(targetOwner)
+    ) {
+      return [];
+    }
+    const enemy = targetOwner !== unit.owner();
+    const range = enemy && unit.type() === UnitType.Sniper ? 3 : enemy ? 1 : 0;
+    const queue = [start];
+    const parent = new Map<number, number>([[start, start]]);
+    const neighbors = [0, 0, 0, 0];
+    let destination: number | undefined;
+    let closest = start;
+    let closestDistance = this.game.manhattanDist(start, target);
+
+    for (let i = 0; i < queue.length && i < 12_000; i++) {
+      const tile = queue[i];
+      const tileDistance = this.game.manhattanDist(tile, target);
+      if (tileDistance < closestDistance) {
+        closest = tile;
+        closestDistance = tileDistance;
+      }
+      if (tileDistance <= range) {
+        destination = tile;
+        break;
+      }
+      const count = this.game.neighbors4(tile, neighbors);
+      for (let n = 0; n < count; n++) {
+        const next = neighbors[n];
+        if (
+          parent.has(next) ||
+          this.game.owner(next) !== unit.owner() ||
+          this.game.isImpassable(next)
+        ) {
+          continue;
+        }
+        parent.set(next, tile);
+        queue.push(next);
+      }
+    }
+
+    destination ??= closest;
+    const route = [destination];
+    while (route[route.length - 1] !== start) {
+      const previous = parent.get(route[route.length - 1]);
+      if (previous === undefined) return [];
+      route.push(previous);
+    }
+    route.reverse();
+    this.routeCache.set(cacheKey, route);
+    return route;
+  }
+
+  private appendTerrainIntel(out: AttackTroopLabel[]): void {
+    if (!this.mouseTile) return;
+    const tile = this.game.ref(this.mouseTile.x, this.mouseTile.y);
+    const terrain = this.game.terrainType(tile);
+    const terrainKey =
+      terrain === TerrainType.Mountain
+        ? "mountain"
+        : terrain === TerrainType.Highland
+          ? "highland"
+          : terrain === TerrainType.Plains
+            ? "plains"
+            : terrain === TerrainType.Ocean
+              ? "ocean"
+              : "impassable";
+    out.push({
+      x: this.mouseTile.x,
+      y: this.mouseTile.y - 2,
+      text: translateText(`tactical.terrain.${terrainKey}`),
+      colorR: 1,
+      colorG: 0.95,
+      colorB: 0.7,
+      alpha: 0.95,
+      screenScale: 1.05,
+    });
+    if (this.selectedSquadId === null) return;
+    const player = this.game.myPlayer();
+    const targetOwner = this.game.owner(tile);
+    if (
+      !player ||
+      targetOwner === player ||
+      !targetOwner.isPlayer() ||
+      player.isFriendly(targetOwner)
+    ) {
+      return;
+    }
+
+    const neighbors = [0, 0, 0, 0];
+    const neighborCount = this.game.neighbors4(tile, neighbors);
+    let landExits = 0;
+    let friendlyExits = 0;
+    for (let i = 0; i < neighborCount; i++) {
+      const neighbor = neighbors[i];
+      if (!this.game.isLand(neighbor) || this.game.isImpassable(neighbor)) {
+        continue;
+      }
+      landExits++;
+      if (this.game.owner(neighbor) === player) friendlyExits++;
+    }
+    if (landExits >= 3 && friendlyExits === landExits) {
+      out.push({
+        x: this.mouseTile.x,
+        y: this.mouseTile.y - 4,
+        text: translateText("tactical.siege_preview"),
+        colorR: 1,
+        colorG: 0.55,
+        colorB: 0.22,
+        alpha: 0.95,
+        screenScale: 1.05,
+      });
+    }
+  }
+
+  private appendDeathEffects(out: AttackTroopLabel[], now: number): void {
+    for (const effect of this.destroyedSquads) {
+      const age = (now - effect.startMs) / 650;
+      for (let i = 0; i < 5; i++) {
+        const angle = ((effect.seed * 17 + i * 72) * Math.PI) / 180;
+        out.push({
+          x: effect.x + Math.cos(angle) * age * 2.5,
+          y: effect.y + Math.sin(angle) * age * 2.5,
+          text: ".",
+          colorR: 0.9,
+          colorG: 0.72,
+          colorB: 0.55,
+          alpha: 1 - age,
+          screenScale: 0.8 - age * 0.3,
+        });
+      }
+    }
   }
 }
