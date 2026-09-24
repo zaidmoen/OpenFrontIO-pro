@@ -366,6 +366,29 @@ export class AttackExecution implements Execution {
         UnitType.DefensePost,
         defender.id(),
       );
+    const attackerHasSniperSupport = this.mg.hasUnitNearby(
+      tile,
+      4,
+      UnitType.Sniper,
+      this._owner.id(),
+    );
+    let landExits = 0;
+    let attackerControlledExits = 0;
+    const neighborCount = this.map.neighbors4(tile, this.nbuf);
+    for (let i = 0; i < neighborCount; i++) {
+      const neighbor = this.nbuf[i];
+      if (!this.map.isLand(neighbor) || this.map.isImpassable(neighbor)) {
+        continue;
+      }
+      landExits++;
+      if (this.map.ownerID(neighbor) === this.ownerSmallID) {
+        attackerControlledExits++;
+      }
+    }
+    const defenderEncircled =
+      defender !== null &&
+      landExits >= 3 &&
+      attackerControlledExits === landExits;
     return {
       terrain: this.map.terrainType(tile),
       attackTroops,
@@ -390,6 +413,8 @@ export class AttackExecution implements Execution {
       defenderHasSniper:
         defender !== null &&
         this.mg.hasUnitNearby(tile, 3, UnitType.Sniper, defender.id()),
+      attackerHasSniperSupport,
+      defenderEncircled,
       falloutRatio: this.mg.hasFallout(tile)
         ? this.mg.numTilesWithFallout() / this.mg.numLandTiles()
         : null,

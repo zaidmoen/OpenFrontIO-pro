@@ -105,6 +105,22 @@ describe("attackLogic golden values", () => {
     );
   });
 
+  test("sniper support and encirclement reward coordinated attacks", () => {
+    const scenario = {
+      attackTroops: 5_000,
+      defender: defender({ numTiles: 100, troops: 8_000 }),
+    };
+    const unsupported = run(scenario);
+    const supported = run({ ...scenario, attackerHasSniperSupport: true });
+    const encircled = run({ ...scenario, defenderEncircled: true });
+
+    expect(supported.attackerLoss).toBeLessThan(unsupported.attackerLoss);
+    expect(supported.tickFraction).toBeLessThan(unsupported.tickFraction);
+    expect(encircled.attackerLoss).toBeLessThan(unsupported.attackerLoss);
+    expect(encircled.defenderLoss).toBeGreaterThan(unsupported.defenderLoss);
+    expect(encircled.tickFraction).toBeLessThan(unsupported.tickFraction);
+  });
+
   test("barracks power caps at five active levels", () => {
     expect(config.barracksMilitaryPower(0)).toBe(1);
     expect(config.barracksMilitaryPower(1)).toBe(1.08);
