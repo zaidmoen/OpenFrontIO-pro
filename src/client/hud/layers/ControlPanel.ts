@@ -5,7 +5,7 @@ import { assetUrl } from "../../../core/AssetUrls";
 import { EventBus } from "../../../core/EventBus";
 import { ClientID } from "../../../core/Schemas";
 import { Config } from "../../../core/configuration/Config";
-import { GameMode, GameType, Gold } from "../../../core/game/Game";
+import { GameMode, GameType, Gold, UnitType } from "../../../core/game/Game";
 import { TileRef } from "../../../core/game/GameMap";
 import { GameUpdateType } from "../../../core/game/GameUpdates";
 import {
@@ -13,7 +13,7 @@ import {
   UserSettings,
 } from "../../../core/game/UserSettings";
 import { Controller } from "../../Controller";
-import { AttackRatioEvent } from "../../InputHandler";
+import { AttackRatioEvent, UnitSelectionEvent } from "../../InputHandler";
 import { UIState } from "../../UIState";
 import {
   getGamesPlayed,
@@ -23,7 +23,8 @@ import {
 } from "../../Utils";
 import { GameView } from "../../view";
 import { PlayerView } from "../../view/PlayerView";
-import { goldCoinIcon, soldierIcon } from "../HotbarIcons";
+import { UnitView } from "../../view/UnitView";
+import { defensePostIcon, goldCoinIcon, soldierIcon } from "../HotbarIcons";
 import { TutorialHighlight, TutorialHighlightEvent } from "../Tutorial";
 const swordIcon = assetUrl("images/SwordIcon.svg");
 
@@ -58,6 +59,12 @@ export class ControlPanel extends LitElement implements Controller {
 
   @state()
   private _attackingTroops: number = 0;
+
+  @state()
+  private _squads: UnitView[] = [];
+
+  @state()
+  private _selectedSquadId: number | null = null;
 
   @state()
   private _goldGain: bigint | null = null;
@@ -118,7 +125,19 @@ export class ControlPanel extends LitElement implements Controller {
       this.attackRatio = newAttackRatio;
       this.onAttackRatioChange(this.attackRatio);
     });
+    this.eventBus.off(UnitSelectionEvent, this.onSquadSelection);
+    this.eventBus.on(UnitSelectionEvent, this.onSquadSelection);
   }
+
+  private onSquadSelection = (event: UnitSelectionEvent) => {
+    const type = event.unit?.type();
+    this._selectedSquadId =
+      event.isSelected &&
+      (type === UnitType.Infantry || type === UnitType.Sniper)
+        ? event.unit!.id()
+        : null;
+    this.requestUpdate();
+  };
 
   tick() {
     if (!this._isVisible && !this.game.inSpawnPhase()) {
@@ -137,6 +156,9 @@ export class ControlPanel extends LitElement implements Controller {
     this._maxTroops = config.maxTroops(player);
     this._gold = player.gold();
     this._troops = player.troops();
+    this._squads = player
+      .units(UnitType.Infantry, UnitType.Sniper)
+      .filter((unit) => unit.isActive());
     this._attackingTroops = player
       .outgoingAttacks()
       .map((a) => a.troops)
@@ -502,6 +524,87 @@ export class ControlPanel extends LitElement implements Controller {
     `;
   }
 
+  private selectSquad(unit: UnitView) {
+    this.eventBus.emit(new UnitSelectionEvent(unit, true));
+  }
+
+  private renderArmyAndSquads() {
+    const infantry = this._squads.filter(
+      (unit) => unit.type() === UnitType.Infantry,
+    ).length;
+    const snipers = this._squads.length - infantry;
+    return html`
+      <section
+        class="mt-1 rounded-md border border-white/15 bg-gray-950/75 px-2 py-1.5 text-xs text-white"
+        aria-label=${translateText("army_ui.title")}
+      >
+        <div
+          class="flex items-center justify-between gap-2 border-b border-white/10 pb-1"
+        >
+          <span class="flex items-center gap-1 font-semibold text-gray-200">
+            <img
+              src=${soldierIcon}
+              alt=""
+              aria-hidden="true"
+              width="13"
+              height="13"
+            />
+            ${translateText("army_ui.national_army")}
+          </span>
+          <span class="tabular-nums font-bold"
+            >${renderTroops(this._troops)}</span
+          >
+        </div>
+        <div
+          class="mt-1 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap"
+        >
+          <span
+            class="shrink-0 text-gray-400"
+            title=${translateText("army_ui.special_squads")}
+          >
+            ${translateText("army_ui.special_squads")}
+            <span class="text-gray-500">${infantry} / ${snipers}</span>
+          </span>
+          ${this._squads.length === 0
+            ? html`<span class="text-gray-500"
+                >${translateText("army_ui.no_squads")}</span
+              >`
+            : this._squads.map((unit) => {
+                const infantryUnit = unit.type() === UnitType.Infantry;
+                const selected = unit.id() === this._selectedSquadId;
+                const name = translateText(
+                  infantryUnit ? "unit_type.infantry" : "unit_type.sniper",
+                );
+                return html`
+                  <button
+                    type="button"
+                    class="flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 font-semibold transition-colors ${selected
+                      ? "border-yellow-300 bg-yellow-400/20 text-yellow-100"
+                      : "border-white/15 bg-white/5 text-gray-200 hover:bg-white/15"}"
+                    aria-label=${`${translateText("army_ui.select_squad")} ${name} ${renderTroops(unit.troops())}`}
+                    aria-pressed=${selected}
+                    title=${translateText("army_ui.select_squad")}
+                    @click=${() => this.selectSquad(unit)}
+                  >
+                    <img
+                      src=${infantryUnit ? soldierIcon : defensePostIcon}
+                      alt=""
+                      aria-hidden="true"
+                      width="13"
+                      height="13"
+                    />
+                    <span>${name}</span>
+                    <span class="tabular-nums text-gray-400"
+                      >${renderTroops(unit.troops())}</span
+                    >
+                  </button>
+                `;
+              })}
+        </div>
+      </section>
+    `;
+  }
+
   private renderDesktop() {
     return html`
       ${this.renderNotification()}
@@ -688,6 +791,7 @@ export class ControlPanel extends LitElement implements Controller {
       >
         <div class="lg:hidden">${this.renderMobile()}</div>
         <div class="hidden lg:block">${this.renderDesktop()}</div>
+        ${this.renderArmyAndSquads()}
       </div>
     `;
   }

@@ -977,6 +977,11 @@ export class ClientGameRunner {
     this.eventBus.on(UnitSelectionEvent, (event) => {
       if (!event.isSelected || event.unit?.type() === UnitType.Warship) {
         this.selectedSquadId = null;
+      } else if (
+        event.unit?.type() === UnitType.Infantry ||
+        event.unit?.type() === UnitType.Sniper
+      ) {
+        this.selectedSquadId = event.unit.id();
       }
     });
     this.eventBus.on(MouseMoveEvent, this.onMouseMove.bind(this));
