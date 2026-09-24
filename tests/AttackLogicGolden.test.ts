@@ -58,6 +58,43 @@ const TERRAINS = [
 ] as const;
 
 describe("attackLogic golden values", () => {
+  test("barracks military power changes combat effectiveness", () => {
+    const battle = (attackerPower = 1, defenderPower = 1) =>
+      run({
+        attackTroops: 100_000,
+        attacker: {
+          type: PlayerType.Human,
+          numTiles: 20_000,
+          militaryPower: attackerPower,
+        },
+        defender: defender({
+          numTiles: 20_000,
+          troops: 100_000,
+          militaryPower: defenderPower,
+        }),
+      });
+
+    const evenMatch = battle();
+    const trainedAttacker = battle(config.barracksMilitaryPower(5));
+    const trainedDefender = battle(1, config.barracksMilitaryPower(5));
+
+    expect(trainedAttacker.attackerLoss).toBeLessThan(evenMatch.attackerLoss);
+    expect(trainedAttacker.tickFraction).toBeLessThan(evenMatch.tickFraction);
+    expect(trainedDefender.attackerLoss).toBeGreaterThan(
+      evenMatch.attackerLoss,
+    );
+    expect(trainedDefender.tickFraction).toBeGreaterThan(
+      evenMatch.tickFraction,
+    );
+  });
+
+  test("barracks power caps at five active levels", () => {
+    expect(config.barracksMilitaryPower(0)).toBe(1);
+    expect(config.barracksMilitaryPower(1)).toBe(1.08);
+    expect(config.barracksMilitaryPower(5)).toBe(1.4);
+    expect(config.barracksMilitaryPower(12)).toBe(1.4);
+  });
+
   test("player vs player: terrain × territory × troops grid", () => {
     const attackerTiles = [1_000, 50_000, 200_000];
     const defenderTiles = [1_000, 50_000, 150_000, 400_000];

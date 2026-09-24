@@ -72,6 +72,27 @@ describe("Construction economy", () => {
     ).toBe(false);
   });
 
+  test("Barracks only grant military power after construction completes", () => {
+    const target = game.ref(0, 10);
+    const cost = game.unitInfo(UnitType.Barracks).cost(game, player);
+    player.addGold(cost);
+    game.addExecution(
+      new ConstructionExecution(player, UnitType.Barracks, target),
+    );
+
+    game.executeNextTick();
+    game.executeNextTick();
+    const barracks = player.units(UnitType.Barracks)[0];
+    expect(barracks).toBeDefined();
+    expect(barracks.isUnderConstruction()).toBe(true);
+
+    const duration = game.unitInfo(UnitType.Barracks).constructionDuration ?? 0;
+    for (let i = 0; i <= duration + 2; i++) game.executeNextTick();
+
+    expect(barracks.isUnderConstruction()).toBe(false);
+    expect(game.config().barracksMilitaryPower(barracks.level())).toBe(1.08);
+  });
+
   test("MIRV gets more expensive with each launch", () => {
     expect(game.config().unitInfo(UnitType.MIRV).cost(game, other)).toBe(
       25_000_000n,

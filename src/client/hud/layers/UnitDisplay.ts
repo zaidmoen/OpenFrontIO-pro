@@ -16,6 +16,7 @@ import { renderNumber, translateText } from "../../Utils";
 import { GameView } from "../../view";
 import {
   atomBombIcon,
+  barracksIcon,
   cityIcon,
   defensePostIcon,
   factoryIcon,
@@ -39,6 +40,7 @@ export class UnitDisplay extends LitElement implements Controller {
   private _cities = 0;
   private _warships = 0;
   private _factories = 0;
+  private _barracks = 0;
   private _missileSilo = 0;
   private _port = 0;
   private _defensePost = 0;
@@ -122,6 +124,7 @@ export class UnitDisplay extends LitElement implements Controller {
     this._defensePost = player.totalUnitLevels(UnitType.DefensePost);
     this._samLauncher = player.totalUnitLevels(UnitType.SAMLauncher);
     this._factories = player.totalUnitLevels(UnitType.Factory);
+    this._barracks = player.totalUnitLevels(UnitType.Barracks);
     this._warships = player.totalUnitLevels(UnitType.Warship);
     this.requestUpdate();
   }
@@ -156,6 +159,13 @@ export class UnitDisplay extends LitElement implements Controller {
             UnitType.Factory,
             "factory",
             this.keybinds["buildFactory"]?.key ?? "2",
+          )}
+          ${this.renderUnitItem(
+            barracksIcon,
+            this._barracks,
+            UnitType.Barracks,
+            "barracks",
+            this.keybinds["buildBarracks"]?.key ?? "H",
           )}
           ${this.renderUnitItem(
             portIcon,

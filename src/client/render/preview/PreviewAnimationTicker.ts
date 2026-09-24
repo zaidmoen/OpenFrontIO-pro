@@ -17,6 +17,7 @@ import { TrainType } from "../types";
 import type { UnitState } from "../types/Renderer";
 import {
   UT_ATOM_BOMB,
+  UT_BARRACKS,
   UT_CITY,
   UT_DEFENSE_POST,
   UT_FACTORY,
@@ -203,6 +204,7 @@ export class PreviewAnimationTicker {
       { type: UT_PORT, ...COAST, level: 2 },
       { type: UT_CITY, ...at(COAST, -36, -52), level: 3 },
       { type: UT_FACTORY, ...at(COAST, 36, -52), level: 2 },
+      { type: UT_BARRACKS, ...at(COAST, 0, -52), level: 2 },
       { type: UT_DEFENSE_POST, ...at(COAST, -56, -20), level: 2 },
       { type: UT_SAM_LAUNCHER, ...at(COAST, 56, -20), level: 1 },
       { type: UT_MISSILE_SILO, ...at(COAST, 0, -92), level: 1 },

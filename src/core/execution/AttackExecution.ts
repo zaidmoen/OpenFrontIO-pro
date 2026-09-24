@@ -52,6 +52,8 @@ export class AttackExecution implements Execution {
   // Cached smallIDs for integer owner comparisons in hot loops.
   private ownerSmallID: number;
   private targetSmallID: number;
+  private attackerMilitaryPower = 1;
+  private defenderMilitaryPower = 1;
   // Reusable neighbor buffers to avoid closures/allocation in hot loops.
   private nbuf: TileRef[] = [0, 0, 0, 0];
   private nbuf2: TileRef[] = [0, 0, 0, 0];
@@ -91,6 +93,10 @@ export class AttackExecution implements Execution {
         : mg.player(this._targetID);
     this.ownerSmallID = this._owner.smallID();
     this.targetSmallID = this.target.smallID();
+    this.attackerMilitaryPower = this.militaryPower(this._owner);
+    this.defenderMilitaryPower = this.target.isPlayer()
+      ? this.militaryPower(this.target)
+      : 1;
 
     if (this._owner === this.target) {
       console.error(`Player ${this._owner} cannot attack itself`);
@@ -366,6 +372,7 @@ export class AttackExecution implements Execution {
       attacker: {
         type: this._owner.type(),
         numTiles: this._owner.numTilesOwned(),
+        militaryPower: this.attackerMilitaryPower,
       },
       defender:
         defender === null
@@ -374,6 +381,7 @@ export class AttackExecution implements Execution {
               type: defender.type(),
               numTiles: defender.numTilesOwned(),
               troops: defender.troops(),
+              militaryPower: this.defenderMilitaryPower,
               isTraitor: defender.isTraitor(),
               isDisconnectedTeammate:
                 defender.isDisconnected() && this._owner.isOnSameTeam(defender),
@@ -384,6 +392,16 @@ export class AttackExecution implements Execution {
         : null,
       borderSize,
     };
+  }
+
+  private militaryPower(player: Player): number {
+    let barracksLevels = 0;
+    for (const barracks of player.units(UnitType.Barracks)) {
+      if (barracks.isActive() && !barracks.isUnderConstruction()) {
+        barracksLevels += barracks.level();
+      }
+    }
+    return this.mg.config().barracksMilitaryPower(barracksLevels);
   }
 
   private rejectIncomingAllianceRequests(target: Player) {

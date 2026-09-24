@@ -91,12 +91,13 @@ export function parseGameEnv(value: string | undefined): GameEnv {
 export interface AttackLogicInput {
   terrain: TerrainType;
   attackTroops: number;
-  attacker: { type: PlayerType; numTiles: number };
+  attacker: { type: PlayerType; numTiles: number; militaryPower?: number };
   /** null when attacking terra nullius. */
   defender: {
     type: PlayerType;
     numTiles: number;
     troops: number;
+    militaryPower?: number;
     isTraitor: boolean;
     /** Defender is disconnected and on the attacker's team. */
     isDisconnectedTeammate: boolean;
@@ -187,6 +188,8 @@ function terrainAttackBase(terrain: TerrainType): {
   }
 }
 const DEFAULT_SPAWN_IMMUNITY_TICKS = 5 * 10;
+const BARRACKS_MILITARY_POWER_PER_LEVEL = 0.08;
+const MAX_BARRACKS_MILITARY_LEVELS = 5;
 
 export const JwksSchema = z.object({
   keys: z
@@ -384,6 +387,15 @@ export class Config {
 
   defensePostSpeedBonus(): number {
     return 3;
+  }
+
+  /** Each active barracks level adds 8% military strength, up to 40%. */
+  barracksMilitaryPower(levels: number): number {
+    return (
+      1 +
+      Math.min(Math.max(0, levels), MAX_BARRACKS_MILITARY_LEVELS) *
+        BARRACKS_MILITARY_POWER_PER_LEVEL
+    );
   }
 
   playerTeams(): TeamCountConfig {
@@ -688,6 +700,17 @@ export class Config {
           upgradable: true,
         };
         break;
+      case UnitType.Barracks:
+        info = {
+          cost: this.costWrapper(
+            (numUnits: number) =>
+              Math.min(1_500_000, 300_000 + numUnits * 250_000),
+            UnitType.Barracks,
+          ),
+          constructionDuration: this.instantBuild() ? 0 : 6 * 10,
+          upgradable: true,
+        };
+        break;
       case UnitType.Train:
         info = {
           cost: () => 0n,
@@ -895,12 +918,14 @@ export class Config {
 
     if (defender === null) {
       const tickBudget = input.borderSize * 2;
+      const attackerPower = Math.max(1, attacker.militaryPower ?? 1);
       return {
         attackerTroopLoss: mag / (attacker.type === PlayerType.Bot ? 10 : 5),
         defenderTroopLoss: 0,
         tickFraction:
           within(
-            (TERRA_NULLIUS_COST_SCALE * tileCost) / attackTroops,
+            (TERRA_NULLIUS_COST_SCALE * tileCost) /
+              (attackTroops * attackerPower),
             TERRA_NULLIUS_MIN_COST,
             TERRA_NULLIUS_MAX_COST,
           ) / tickBudget,
@@ -936,11 +961,13 @@ export class Config {
     // Defender loses its average troops-per-tile.
     const defenderTroopLoss = defender.troops / defender.numTiles;
 
-    // Two ratios drive the attacker's loss: how outnumbered the attack is
-    // (defender army / attack stack, clamped: bigger pushes pay less per
-    // tile) scales a cost made of a base plus the defender's troop density
-    // (packed land is expensive, spread-thin land is cheap).
-    const troopRatio = defender.troops / attackTroops;
+    // Military training changes each side's effective army size before the
+    // defender-to-attacker ratio is calculated. Bigger pushes still pay less
+    // per tile, while troop density keeps packed land expensive to conquer.
+    const attackerPower = Math.max(1, attacker.militaryPower ?? 1);
+    const defenderPower = Math.max(1, defender.militaryPower ?? 1);
+    const troopRatio =
+      (defender.troops * defenderPower) / (attackTroops * attackerPower);
     const attackerTroopLoss =
       mag *
       traitorLossMod *

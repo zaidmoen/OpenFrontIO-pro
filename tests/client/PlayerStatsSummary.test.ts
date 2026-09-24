@@ -52,6 +52,7 @@ const leaf: PlayerStatsLeaf = {
     units: {
       city: [10n, 1n, 2n, 3n],
       fact: [4n, 0n, 0n, 0n],
+      barr: [2n, 0n, 0n, 0n],
       defp: [3n, 0n, 0n, 0n],
       port: [5n, 0n, 0n, 1n],
       wshp: [7n, 2n, 1n, 4n],
@@ -136,6 +137,10 @@ describe("PlayerStatsSummary", () => {
           value: "0.8",
         },
         {
+          key: "barracks",
+          value: "0.4",
+        },
+        {
           key: "defensePosts",
           value: "0.6",
         },
@@ -191,7 +196,7 @@ describe("PlayerStatsSummary", () => {
     });
   });
 
-  it("renders sixteen gameplay cards as 4x4 on desktop", async () => {
+  it("renders seventeen gameplay cards in their metric groups on desktop", async () => {
     const summary = document.createElement(
       "player-stats-summary",
     ) as PlayerStatsSummary;
@@ -230,7 +235,7 @@ describe("PlayerStatsSummary", () => {
           stat.classList.contains("text-center"),
       ),
     ).toBe(true);
-    expect(summary.querySelectorAll("[data-stat]")).toHaveLength(16);
+    expect(summary.querySelectorAll("[data-stat]")).toHaveLength(17);
     // Every tile marks the unit with the in-game icon next to the number
     // rather than in the label, so the value reads as "16 <city> / game".
     const cities = summary.querySelector('[data-stat="cities"]');
@@ -240,6 +245,11 @@ describe("PlayerStatsSummary", () => {
     expect(cities?.querySelector("[data-unit]")?.getAttribute("src")).toBe(
       "/images/CityIconWhite.svg",
     );
+    expect(
+      summary
+        .querySelector('[data-stat="barracks"] [data-unit]')
+        ?.getAttribute("src"),
+    ).toBe("/images/BarracksIconWhite.svg");
     // SoldierIcon is authored black, so it is flipped to sit on a dark tile.
     // TroopIconWhite would be the obvious pick and is unusable in an <img>:
     // half of it is fill="currentColor" with no colour to inherit.
@@ -253,8 +263,8 @@ describe("PlayerStatsSummary", () => {
         '[data-stat="cities"] [data-unit]',
       )?.style.filter,
     ).toBe("");
-    expect(summary.querySelectorAll("[data-per-game]")).toHaveLength(16);
-    expect(summary.querySelectorAll("[data-unit]")).toHaveLength(16);
+    expect(summary.querySelectorAll("[data-per-game]")).toHaveLength(17);
+    expect(summary.querySelectorAll("[data-unit]")).toHaveLength(17);
     // Paired tiles count the same unit, so they share one icon.
     expect(
       summary
@@ -271,7 +281,7 @@ describe("PlayerStatsSummary", () => {
     expect(unitIcon?.getAttribute("aria-hidden")).toBe("true");
     expect(unitIcon?.getAttribute("alt")).toBe("");
 
-    // Four family rows, each four tiles.
+    // Four family rows. Buildings now have one extra tile.
     expect(
       Array.from(summary.querySelectorAll("[data-metric-group]")).map((group) =>
         group.getAttribute("data-metric-group"),
@@ -282,9 +292,10 @@ describe("PlayerStatsSummary", () => {
       "player_stats_tree.stats_group_combat",
       "player_stats_tree.stats_group_gold",
     ]);
-    for (const group of summary.querySelectorAll("[data-metric-group]")) {
-      expect(group.querySelectorAll("[data-stat]")).toHaveLength(4);
-    }
+    const groupCounts = Array.from(
+      summary.querySelectorAll("[data-metric-group]"),
+    ).map((group) => group.querySelectorAll("[data-stat]").length);
+    expect(groupCounts).toEqual([5, 4, 4, 4]);
 
     // The heading names the family and the icon names the unit, so the
     // visible label is only what tells a tile from its neighbours.
@@ -297,7 +308,13 @@ describe("PlayerStatsSummary", () => {
     ).toContain("player_stats_tree.stats_transports_landed_short");
 
     // Every building tile reads "Built" — the icon is what says which.
-    for (const stat of ["cities", "ports", "factories", "defensePosts"]) {
+    for (const stat of [
+      "cities",
+      "ports",
+      "factories",
+      "barracks",
+      "defensePosts",
+    ]) {
       expect(
         summary.querySelector(`[data-stat="${stat}"] [data-label]`)
           ?.textContent,
