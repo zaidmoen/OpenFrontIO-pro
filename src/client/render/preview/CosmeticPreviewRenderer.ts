@@ -40,6 +40,7 @@ import type {
 } from "../types/Renderer";
 import {
   UT_ATOM_BOMB,
+  UT_BARRACKS,
   UT_CITY,
   UT_DEFENSE_POST,
   UT_FACTORY,
@@ -101,6 +102,7 @@ const ALL_STRUCTURE_TYPES = [
   UT_DEFENSE_POST,
   UT_SAM_LAUNCHER,
   UT_MISSILE_SILO,
+  UT_BARRACKS,
 ];
 
 const ALL_MOBILE_UNIT_TYPES = [

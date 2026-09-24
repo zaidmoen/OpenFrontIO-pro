@@ -445,6 +445,7 @@ export class InputHandler {
     let buildKeybinds: string[] = [
       "buildCity",
       "buildFactory",
+      "buildBarracks",
       "buildPort",
       "buildDefensePost",
       "buildMissileSilo",
@@ -1229,6 +1230,7 @@ export class InputHandler {
     }> = [
       { key: "buildCity", type: UnitType.City },
       { key: "buildFactory", type: UnitType.Factory },
+      { key: "buildBarracks", type: UnitType.Barracks },
       { key: "buildPort", type: UnitType.Port },
       { key: "buildDefensePost", type: UnitType.DefensePost },
       { key: "buildMissileSilo", type: UnitType.MissileSilo },

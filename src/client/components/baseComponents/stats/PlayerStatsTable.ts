@@ -20,6 +20,7 @@ const BUILDING_ORDER = {
   defp: 4,
   silo: 5,
   saml: 6,
+  barr: 7,
 } as const satisfies Record<
   Exclude<(typeof otherUnits)[number], "wshp">,
   number
@@ -43,6 +44,7 @@ const UNIT_LABEL_KEYS = {
   silo: "unit_type.missile_silo",
   wshp: "unit_type.warship",
   abomb: "unit_type.atom_bomb",
+  barr: "unit_type.barracks",
   hbomb: "unit_type.hydrogen_bomb",
   mirv: "unit_type.mirv",
   mirvw: "player_stats_table.unit.mirvw",
