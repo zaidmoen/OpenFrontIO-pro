@@ -17,6 +17,7 @@ import { MissileSiloExecution } from "./MissileSiloExecution";
 import { NukeExecution } from "./NukeExecution";
 import { PortExecution } from "./PortExecution";
 import { SAMLauncherExecution } from "./SAMLauncherExecution";
+import { SquadExecution } from "./SquadExecution";
 import { WarshipExecution } from "./WarshipExecution";
 
 export class ConstructionExecution implements Execution {
@@ -139,6 +140,15 @@ export class ConstructionExecution implements Execution {
           new WarshipExecution({ owner: player, patrolTile: this.tile }),
         );
         break;
+      case UnitType.Infantry:
+      case UnitType.Sniper: {
+        const tile = player.canBuild(this.constructionType, this.tile);
+        const troops = this.constructionType === UnitType.Infantry ? 300 : 120;
+        if (tile === false || player.troops() < troops) break;
+        const squad = player.buildUnit(this.constructionType, tile, { troops });
+        this.mg.addExecution(new SquadExecution(squad));
+        break;
+      }
       case UnitType.Port:
         this.mg.addExecution(new PortExecution(this.structure!));
         break;

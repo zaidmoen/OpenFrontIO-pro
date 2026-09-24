@@ -49,6 +49,7 @@ import {
   MouseUpEvent,
   TickMetricsEvent,
   ToggleRenderDebugGuiEvent,
+  UnitSelectionEvent,
 } from "./InputHandler";
 import { pagePin } from "./PagePin";
 import { groupTokenOf, loggableStartMessage } from "./PresenceGroup";
@@ -57,6 +58,7 @@ import { reportGameError } from "./Telemetry";
 import { terrainMapFileLoader } from "./TerrainMapFileLoader";
 import { GoToPlayerEvent } from "./TransformHandler";
 import {
+  MoveSquadIntentEvent,
   MoveWarshipIntentEvent,
   NewLobbyEvent,
   SendAllianceExtensionIntentEvent,
@@ -910,6 +912,7 @@ async function createClientGame(
 
 export class ClientGameRunner {
   private myPlayer: PlayerView | null = null;
+  private selectedSquadId: number | null = null;
   private isActive = false;
 
   private turnsSeen = 0;
@@ -971,6 +974,11 @@ export class ClientGameRunner {
     }, 20000);
 
     this.eventBus.on(MouseUpEvent, this.inputEvent.bind(this));
+    this.eventBus.on(UnitSelectionEvent, (event) => {
+      if (!event.isSelected || event.unit?.type() === UnitType.Warship) {
+        this.selectedSquadId = null;
+      }
+    });
     this.eventBus.on(MouseMoveEvent, this.onMouseMove.bind(this));
     this.eventBus.on(AutoUpgradeEvent, this.autoUpgradeEvent.bind(this));
     this.eventBus.on(
@@ -1226,6 +1234,28 @@ export class ClientGameRunner {
       const myPlayer = this.gameView.playerByClientID(this.clientID);
       if (myPlayer === null) return;
       this.myPlayer = myPlayer;
+    }
+    const ownedSquads = this.gameView
+      .units(UnitType.Infantry, UnitType.Sniper)
+      .filter(
+        (unit) =>
+          unit.tile() === tile &&
+          unit.state.ownerID === this.myPlayer!.smallID(),
+      );
+    if (ownedSquads.length > 0) {
+      const previous = ownedSquads.findIndex(
+        (unit) => unit.id() === this.selectedSquadId,
+      );
+      const ownedSquad = ownedSquads[(previous + 1) % ownedSquads.length];
+      this.selectedSquadId = ownedSquad.id();
+      this.eventBus.emit(new UnitSelectionEvent(ownedSquad, true));
+      return;
+    }
+    if (this.selectedSquadId !== null) {
+      this.eventBus.emit(new MoveSquadIntentEvent(this.selectedSquadId, tile));
+      this.selectedSquadId = null;
+      this.eventBus.emit(new UnitSelectionEvent(null, false));
+      return;
     }
     this.myPlayer
       .actions(tile, [UnitType.TransportShip])

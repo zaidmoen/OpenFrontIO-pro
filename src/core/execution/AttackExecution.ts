@@ -387,6 +387,9 @@ export class AttackExecution implements Execution {
                 defender.isDisconnected() && this._owner.isOnSameTeam(defender),
             },
       defenderHasDefensePost,
+      defenderHasSniper:
+        defender !== null &&
+        this.mg.hasUnitNearby(tile, 3, UnitType.Sniper, defender.id()),
       falloutRatio: this.mg.hasFallout(tile)
         ? this.mg.numTilesWithFallout() / this.mg.numLandTiles()
         : null,

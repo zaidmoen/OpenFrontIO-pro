@@ -18,6 +18,7 @@ import { AllianceExtensionExecution } from "./alliance/AllianceExtensionExecutio
 import { DeleteUnitExecution } from "./DeleteUnitExecution";
 import { AiAttackBehavior } from "./utils/AiAttackBehavior";
 import { maybeBuildOfflineBarracks } from "./utils/OfflineBarracksBehavior";
+import { maybeUseOfflineSquads } from "./utils/OfflineSquadBehavior";
 
 export class TribeExecution implements Execution {
   private active = true;
@@ -75,6 +76,7 @@ export class TribeExecution implements Execution {
 
     this.acceptAllAllianceRequests();
     this.deleteNextStructure();
+    if (maybeUseOfflineSquads(this.mg, this.tribe)) return;
     if (maybeBuildOfflineBarracks(this.mg, this.tribe, this.random)) return;
     this.maybeAttack();
   }

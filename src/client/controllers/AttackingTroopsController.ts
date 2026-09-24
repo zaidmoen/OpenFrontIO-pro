@@ -9,13 +9,14 @@
  * to what the old CSS transition did.
  */
 import { EventBus } from "../../core/EventBus";
-import { Cell, PlayerType } from "../../core/game/Game";
+import { Cell, PlayerType, UnitType } from "../../core/game/Game";
 import { UserSettings } from "../../core/game/UserSettings";
 import { Controller } from "../Controller";
-import { AlternateViewEvent } from "../InputHandler";
+import { AlternateViewEvent, UnitSelectionEvent } from "../InputHandler";
 import { MapRenderer } from "../render/gl";
 import type { AttackTroopLabel } from "../render/gl/passes/WorldTextPass";
-import { renderTroops } from "../Utils";
+import { renderTroops, translateText } from "../Utils";
+import type { UnitView } from "../view";
 import { GameView } from "../view";
 
 // Aquarius (#3fa9f5) for outgoing, red-400 (#f87171) for incoming.
@@ -68,6 +69,8 @@ export class AttackingTroopsController implements Controller {
   private attacks = new Map<string, AttackEntry>();
   private inFlightRequest = false;
   private alternateView = false;
+  private selectedSquadId: number | null = null;
+  private squads: UnitView[] = [];
   /** Reused buffer pushed to the view each frame. */
   private labelBuf: AttackTroopLabel[] = [];
 
@@ -82,6 +85,14 @@ export class AttackingTroopsController implements Controller {
     this.eventBus.on(AlternateViewEvent, (e) => {
       this.alternateView = e.alternateView;
     });
+    this.eventBus.on(UnitSelectionEvent, (event) => {
+      this.selectedSquadId =
+        event.isSelected &&
+        (event.unit?.type() === UnitType.Infantry ||
+          event.unit?.type() === UnitType.Sniper)
+          ? event.unit.id()
+          : null;
+    });
 
     const drive = () => {
       this.pushLabels();
@@ -95,6 +106,7 @@ export class AttackingTroopsController implements Controller {
   }
 
   tick() {
+    this.squads = this.game.units(UnitType.Infantry, UnitType.Sniper);
     if (!this.userSettings.attackingTroopsOverlay() || this.alternateView) {
       if (this.attacks.size > 0) this.attacks.clear();
       return;
@@ -225,7 +237,7 @@ export class AttackingTroopsController implements Controller {
   }
 
   private pushLabels(): void {
-    if (this.alternateView || this.attacks.size === 0) {
+    if (this.alternateView) {
       if (this.labelBuf.length > 0) {
         this.labelBuf = [];
         this.view.setAttackTroopLabels(this.labelBuf);
@@ -253,6 +265,21 @@ export class AttackingTroopsController implements Controller {
           colorB: b,
         });
       }
+    }
+
+    const ownID = this.game.myPlayer()?.smallID();
+    for (const unit of this.squads) {
+      if (!unit.isActive()) continue;
+      const own = unit.state.ownerID === ownID;
+      const selected = unit.id() === this.selectedSquadId;
+      out.push({
+        x: this.game.x(unit.tile()),
+        y: this.game.y(unit.tile()),
+        text: `${selected ? "> " : ""}${translateText(unit.type() === UnitType.Infantry ? "unit_type.infantry" : "unit_type.sniper")} ${renderTroops(unit.troops())}`,
+        colorR: selected ? 1 : own ? OUTGOING_R : INCOMING_R,
+        colorG: selected ? 0.85 : own ? OUTGOING_G : INCOMING_G,
+        colorB: selected ? 0.2 : own ? OUTGOING_B : INCOMING_B,
+      });
     }
 
     this.labelBuf = out;
