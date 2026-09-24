@@ -1,5 +1,5 @@
 ﻿import { z } from "zod";
-import { Execution, Game, Player, Structures } from "../game/Game";
+import { Execution, Game, Player, Structures, UnitType } from "../game/Game";
 import { PseudoRandom } from "../PseudoRandom";
 import { execSnapshotType } from "../snapshot/ExecutionSnapshot";
 import type {
@@ -17,6 +17,7 @@ import { simpleHash } from "../Util";
 import { AllianceExtensionExecution } from "./alliance/AllianceExtensionExecution";
 import { DeleteUnitExecution } from "./DeleteUnitExecution";
 import { AiAttackBehavior } from "./utils/AiAttackBehavior";
+import { maybeBuildOfflineBarracks } from "./utils/OfflineBarracksBehavior";
 
 export class TribeExecution implements Execution {
   private active = true;
@@ -74,6 +75,7 @@ export class TribeExecution implements Execution {
 
     this.acceptAllAllianceRequests();
     this.deleteNextStructure();
+    if (maybeBuildOfflineBarracks(this.mg, this.tribe, this.random)) return;
     this.maybeAttack();
   }
 
@@ -100,6 +102,7 @@ export class TribeExecution implements Execution {
     if (!this.tribe.canDeleteUnit()) return;
     for (const unit of this.tribe.units()) {
       if (!Structures.has(unit.type())) continue;
+      if (unit.type() === UnitType.Barracks) continue;
       if (unit.isMarkedForDeletion()) continue;
       this.mg.addExecution(new DeleteUnitExecution(this.tribe, unit.id()));
       return;
