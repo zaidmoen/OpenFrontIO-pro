@@ -9,7 +9,7 @@
  * to what the old CSS transition did.
  */
 import { EventBus } from "../../core/EventBus";
-import { Cell, PlayerType, TerrainType, UnitType } from "../../core/game/Game";
+import { Cell, TerrainType, UnitType } from "../../core/game/Game";
 import { UserSettings } from "../../core/game/UserSettings";
 import { Controller } from "../Controller";
 import {
@@ -18,16 +18,17 @@ import {
   UnitSelectionEvent,
 } from "../InputHandler";
 import { MapRenderer } from "../render/gl";
+import type { ArmyMarker } from "../render/gl/passes/ArmyMarkerPass";
 import type { AttackTroopLabel } from "../render/gl/passes/WorldTextPass";
 import { TransformHandler } from "../TransformHandler";
 import { renderTroops, translateText } from "../Utils";
 import type { UnitView } from "../view";
 import { GameView } from "../view";
 
-// Aquarius (#3fa9f5) for outgoing, red-400 (#f87171) for incoming.
-const OUTGOING_R = 0x3f / 255;
-const OUTGOING_G = 0xa9 / 255;
-const OUTGOING_B = 0xf5 / 255;
+// Tactical overlay colors are player-relative, independent of territory skins.
+const OUTGOING_R = 0x4a / 255;
+const OUTGOING_G = 0xe4 / 255;
+const OUTGOING_B = 0x80 / 255;
 const INCOMING_R = 0xf8 / 255;
 const INCOMING_G = 0x71 / 255;
 const INCOMING_B = 0x71 / 255;
@@ -52,7 +53,7 @@ export interface Slot {
 }
 
 interface AttackEntry {
-  text: string;
+  troops: number;
   isIncoming: boolean;
   slots: Slot[];
 }
@@ -78,11 +79,13 @@ export class AttackingTroopsController implements Controller {
   private squads: UnitView[] = [];
   /** Reused buffer pushed to the view each frame. */
   private labelBuf: AttackTroopLabel[] = [];
+  private markerBuf: ArmyMarker[] = [];
   private mouseTile: Cell | null = null;
   private previousSquads = new Map<
     number,
     { x: number; y: number; transfersToAttack: boolean }
   >();
+  private squadPositions = new Map<number, Slot>();
   private destroyedSquads: Array<{
     x: number;
     y: number;
@@ -148,6 +151,30 @@ export class AttackingTroopsController implements Controller {
         y: this.game.y(unit.tile()),
         transfersToAttack,
       });
+      const x = this.game.x(unit.tile());
+      const y = this.game.y(unit.tile());
+      const slot = this.squadPositions.get(unit.id());
+      if (!slot) {
+        this.squadPositions.set(unit.id(), {
+          curX: x,
+          curY: y,
+          srcX: x,
+          srcY: y,
+          dstX: x,
+          dstY: y,
+          startMs: now,
+        });
+      } else if (slot.dstX !== x || slot.dstY !== y) {
+        const t = Math.min(1, (now - slot.startMs) / ANIM_MS);
+        const fromX = slot.srcX + (slot.dstX - slot.srcX) * t;
+        const fromY = slot.srcY + (slot.dstY - slot.srcY) * t;
+        const snap = Math.hypot(x - fromX, y - fromY) > SNAP_DISTANCE;
+        slot.srcX = snap ? x : fromX;
+        slot.srcY = snap ? y : fromY;
+        slot.dstX = x;
+        slot.dstY = y;
+        slot.startMs = now;
+      }
     }
     for (const [id, position] of this.previousSquads) {
       if (visibleSquads.has(id)) continue;
@@ -155,6 +182,7 @@ export class AttackingTroopsController implements Controller {
         this.destroyedSquads.push({ ...position, startMs: now, seed: id });
       }
       this.previousSquads.delete(id);
+      this.squadPositions.delete(id);
     }
     this.destroyedSquads = this.destroyedSquads.filter(
       (effect) => now - effect.startMs < 650,
@@ -181,14 +209,10 @@ export class AttackingTroopsController implements Controller {
       this.ensureEntry(attack.id, attack.troops, false);
     }
 
-    // Incoming: only label attacks coming from another player; skip tribes.
+    // Show bot attacks too: they are enemy armies in offline matches.
     for (const attack of myPlayer.incomingAttacks()) {
       const attacker = this.game.playerBySmallID(attack.attackerID);
-      if (
-        !attacker ||
-        !attacker.isPlayer() ||
-        attacker.type() === PlayerType.Bot
-      ) {
+      if (!attacker || !attacker.isPlayer()) {
         continue;
       }
       activeIDs.add(attack.id);
@@ -223,14 +247,13 @@ export class AttackingTroopsController implements Controller {
   }
 
   private ensureEntry(attackID: string, troops: number, isIncoming: boolean) {
-    const text = `o ${renderTroops(troops)}`;
     const existing = this.attacks.get(attackID);
     if (existing) {
-      existing.text = text;
+      existing.troops = troops;
       existing.isIncoming = isIncoming;
       return;
     }
-    this.attacks.set(attackID, { text, isIncoming, slots: [] });
+    this.attacks.set(attackID, { troops, isIncoming, slots: [] });
   }
 
   private reconcileSlots(
@@ -289,16 +312,22 @@ export class AttackingTroopsController implements Controller {
   }
 
   private pushLabels(): void {
-    if (this.alternateView) {
+    if (this.alternateView || !this.userSettings.attackingTroopsOverlay()) {
       if (this.labelBuf.length > 0) {
         this.labelBuf = [];
         this.view.setAttackTroopLabels(this.labelBuf);
+      }
+      if (this.markerBuf.length > 0) {
+        this.markerBuf = [];
+        this.view.setArmyMarkers(this.markerBuf);
       }
       return;
     }
 
     const now = performance.now();
     const out: AttackTroopLabel[] = [];
+    const markers: ArmyMarker[] = [];
+    const labelOffset = 16 / Math.max(this.transformHandler.scale, 0.2);
 
     for (const entry of this.attacks.values()) {
       const r = entry.isIncoming ? INCOMING_R : OUTGOING_R;
@@ -308,10 +337,26 @@ export class AttackingTroopsController implements Controller {
         const t = Math.min(1, (now - slot.startMs) / ANIM_MS);
         slot.curX = slot.srcX + (slot.dstX - slot.srcX) * t;
         slot.curY = slot.srcY + (slot.dstY - slot.srcY) * t;
+        const groups = Math.min(6, Math.ceil(entry.troops / 100));
+        for (let i = 0; i < groups; i++) {
+          markers.push({
+            x: slot.curX,
+            y: slot.curY,
+            directionX: slot.dstX - slot.srcX,
+            directionY: slot.dstY - slot.srcY,
+            colorR: r,
+            colorG: g,
+            colorB: b,
+            strength: 1,
+            selected: false,
+            sniper: false,
+            offset: (i - (groups - 1) / 2) * 8,
+          });
+        }
         out.push({
           x: slot.curX,
-          y: slot.curY,
-          text: entry.text,
+          y: slot.curY - labelOffset,
+          text: renderTroops(entry.troops),
           colorR: r,
           colorG: g,
           colorB: b,
@@ -320,39 +365,84 @@ export class AttackingTroopsController implements Controller {
     }
 
     const ownID = this.game.myPlayer()?.smallID();
+    let visibleRoutes = 0;
     for (const unit of this.squads) {
       if (!unit.isActive()) continue;
       const own = unit.state.ownerID === ownID;
       const selected = unit.id() === this.selectedSquadId;
       const maxTroops = unit.type() === UnitType.Infantry ? 300 : 120;
-      const strength = Math.max(0.25, Math.min(1, unit.troops() / maxTroops));
+      const strength = Math.max(0.1, Math.min(1, unit.troops() / maxTroops));
+      const slot = this.squadPositions.get(unit.id());
+      const motion = slot ? Math.min(1, (now - slot.startMs) / ANIM_MS) : 1;
+      const x = slot
+        ? slot.srcX + (slot.dstX - slot.srcX) * motion
+        : this.game.x(unit.tile());
+      const y = slot
+        ? slot.srcY + (slot.dstY - slot.srcY) * motion
+        : this.game.y(unit.tile());
+      const target = unit.targetTile();
+      const preview =
+        selected && this.mouseTile
+          ? this.game.ref(this.mouseTile.x, this.mouseTile.y)
+          : target;
+      // Only calculate route previews for controllable formations. Enemy
+      // direction comes from its target without another breadth-first search.
+      const showRoute =
+        own && (selected || (target !== undefined && visibleRoutes < 12));
+      const route =
+        showRoute && preview !== undefined ? this.routeTo(unit, preview) : [];
+      if (showRoute && route.length > 1) {
+        visibleRoutes++;
+        this.appendRouteDots(out, route, now, own);
+      }
+      const next = route.length > 1 ? route[1] : preview;
+      const directionX =
+        slot && slot.dstX !== slot.srcX
+          ? slot.dstX - slot.srcX
+          : next === undefined
+            ? 0
+            : this.game.x(next) - x;
+      const directionY =
+        slot && slot.dstY !== slot.srcY
+          ? slot.dstY - slot.srcY
+          : next === undefined
+            ? -1
+            : this.game.y(next) - y;
+      const groups = Math.min(5, Math.ceil(unit.troops() / 100));
+      for (let i = 0; i < groups; i++) {
+        markers.push({
+          x,
+          y,
+          directionX,
+          directionY,
+          colorR: own ? OUTGOING_R : INCOMING_R,
+          colorG: own ? OUTGOING_G : INCOMING_G,
+          colorB: own ? OUTGOING_B : INCOMING_B,
+          strength,
+          selected,
+          sniper: unit.type() === UnitType.Sniper,
+          offset: (i - (groups - 1) / 2) * 8,
+        });
+      }
       out.push({
-        x: this.game.x(unit.tile()),
-        y: this.game.y(unit.tile()),
-        text: `${selected ? "> " : ""}${unit.type() === UnitType.Infantry ? "I" : "S"} o ${renderTroops(unit.troops())}`,
+        x,
+        y: y - labelOffset,
+        text: `${unit.type() === UnitType.Infantry ? "I" : "S"} ${renderTroops(unit.troops())}`,
         colorR: selected ? 1 : own ? OUTGOING_R : INCOMING_R,
         colorG: selected ? 0.85 : own ? OUTGOING_G : INCOMING_G,
         colorB: selected ? 0.2 : own ? OUTGOING_B : INCOMING_B,
         alpha: 0.38 + strength * 0.62,
         screenScale: 0.72 + strength * 0.4,
       });
-
-      const target = unit.targetTile();
-      const preview =
-        selected && this.mouseTile
-          ? this.game.ref(this.mouseTile.x, this.mouseTile.y)
-          : target;
-      if (preview !== undefined && (selected || target !== undefined)) {
-        const route = this.routeTo(unit, preview);
-        this.appendRouteDots(out, route, now, own);
-      }
     }
 
     this.appendTerrainIntel(out);
     this.appendDeathEffects(out, now);
 
     this.labelBuf = out;
+    this.markerBuf = markers;
     this.view.setAttackTroopLabels(out);
+    this.view.setArmyMarkers(markers);
   }
 
   private appendRouteDots(
