@@ -30,6 +30,7 @@ import type {
   TerrainRect,
   UnitState,
 } from "../types";
+import type { ArmyMarker } from "./passes/ArmyMarkerPass";
 import type { SpawnCenter } from "./passes/SpawnOverlayPass";
 import type { AttackTroopLabel } from "./passes/WorldTextPass";
 import { GPURenderer } from "./Renderer";
@@ -239,6 +240,9 @@ export class MapRenderer {
   }
   setAttackTroopLabels(labels: AttackTroopLabel[]): void {
     this.renderer?.setAttackTroopLabels(labels);
+  }
+  setArmyMarkers(markers: readonly ArmyMarker[]): void {
+    this.renderer?.setArmyMarkers(markers);
   }
   applyBonusEvents(events: BonusEvent[]): void {
     this.renderer?.applyBonusEvents(events);

@@ -31,6 +31,8 @@ import type {
 } from "../types";
 import { Camera } from "./Camera";
 import { GLUnavailableError, initGL } from "./initGL";
+import type { ArmyMarker } from "./passes/ArmyMarkerPass";
+import { ArmyMarkerPass } from "./passes/ArmyMarkerPass";
 import { BarPass } from "./passes/BarPass";
 import { BorderComputePass } from "./passes/BorderComputePass";
 import { BorderStampPass } from "./passes/BorderStampPass";
@@ -140,6 +142,7 @@ export class GPURenderer {
   private railroadPass: RailroadPass;
   private barPass: BarPass;
   private worldTextPass: WorldTextPass;
+  private armyMarkerPass: ArmyMarkerPass;
   private selectionBoxPass: SelectionBoxPass;
   private moveIndicatorPass: MoveIndicatorPass;
   private nukeTrajectoryPass: NukeTrajectoryPass;
@@ -590,6 +593,7 @@ export class GPURenderer {
     this.barPass = new BarPass(gl, header, this.settings, config);
     this.worldTextPass = new WorldTextPass(gl, this.settings, config);
     this.worldTextPass.setMapWidth(this.mapW);
+    this.armyMarkerPass = new ArmyMarkerPass(gl);
     this.selectionBoxPass = new SelectionBoxPass(gl);
     this.moveIndicatorPass = new MoveIndicatorPass(gl, this.settings);
     this.nukeTrajectoryPass = new NukeTrajectoryPass(gl, this.settings);
@@ -1041,6 +1045,10 @@ export class GPURenderer {
     this.worldTextPass.setAttackTroopLabels(labels);
   }
 
+  setArmyMarkers(markers: readonly ArmyMarker[]): void {
+    this.armyMarkerPass.setMarkers(markers);
+  }
+
   applyBonusEvents(events: BonusEvent[]): void {
     if (events.length === 0) return;
     // In live game, filter to local player only. In replay (localPlayerID=0), show all.
@@ -1395,6 +1403,8 @@ export class GPURenderer {
     if (pe.name && !this.altView)
       this.namePass.draw(cam, this.nightCompositePass.getAmbient());
 
+    if (!this.altView) this.armyMarkerPass.draw(cam, zoom);
+
     // World text (attack-troop labels, popups, ghost cost) draws on top of
     // player names so attack callouts aren't hidden behind a centered name.
     this.worldTextPass.tick(zoom);
@@ -1507,6 +1517,7 @@ export class GPURenderer {
     this.namePass.dispose();
     this.fxPass.dispose();
     this.worldTextPass.dispose();
+    this.armyMarkerPass.dispose();
     this.selectionBoxPass.dispose();
     this.moveIndicatorPass.dispose();
     this.nukeTrajectoryPass.dispose();
