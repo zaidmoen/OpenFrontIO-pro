@@ -14,6 +14,7 @@ import {
 } from "../../../core/game/UserSettings";
 import { Controller } from "../../Controller";
 import { AttackRatioEvent, UnitSelectionEvent } from "../../InputHandler";
+import { MoveSquadIntentEvent } from "../../Transport";
 import { UIState } from "../../UIState";
 import {
   getGamesPlayed,
@@ -528,11 +529,29 @@ export class ControlPanel extends LitElement implements Controller {
     this.eventBus.emit(new UnitSelectionEvent(unit, true));
   }
 
+  private orderSquad(unit: UnitView, tile: TileRef) {
+    this.eventBus.emit(new MoveSquadIntentEvent(unit.id(), tile));
+    this.eventBus.emit(new UnitSelectionEvent(null, false));
+  }
+
   private renderArmyAndSquads() {
     const infantry = this._squads.filter(
       (unit) => unit.type() === UnitType.Infantry,
     ).length;
     const snipers = this._squads.length - infantry;
+    const selected = this._squads.find(
+      (unit) => unit.id() === this._selectedSquadId,
+    );
+    const player = this.game.myPlayer();
+    const barracks = player
+      ?.units(UnitType.Barracks)
+      .find(
+        (unit) =>
+          unit.isActive() &&
+          !unit.state.underConstruction &&
+          unit.state.ownerID === player.smallID() &&
+          this.game.owner(unit.tile()) === player,
+      );
     return html`
       <section
         class="mt-1 rounded-md border border-white/15 bg-gray-950/75 px-2 py-1.5 text-xs text-white"
@@ -601,6 +620,31 @@ export class ControlPanel extends LitElement implements Controller {
                 `;
               })}
         </div>
+        ${selected
+          ? html`<div
+              class="mt-1.5 flex flex-wrap items-center gap-1.5 border-t border-white/10 pt-1.5"
+            >
+              <span class="text-gray-400"
+                >${translateText("army_ui.click_destination")}</span
+              >
+              <button
+                type="button"
+                class="rounded border border-white/20 px-2 py-0.5 hover:bg-white/15"
+                @click=${() => this.orderSquad(selected, selected.tile())}
+              >
+                ${translateText("army_ui.hold_position")}
+              </button>
+              ${barracks && selected.tile() !== barracks.tile()
+                ? html`<button
+                    type="button"
+                    class="rounded border border-green-400/40 px-2 py-0.5 text-green-200 hover:bg-green-400/15"
+                    @click=${() => this.orderSquad(selected, barracks.tile())}
+                  >
+                    ${translateText("army_ui.return_to_barracks")}
+                  </button>`
+                : ""}
+            </div>`
+          : ""}
       </section>
     `;
   }

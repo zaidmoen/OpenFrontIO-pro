@@ -31,7 +31,7 @@ export class MoveSquadExecution implements Execution {
     if (
       target.isPlayer() &&
       target !== this.owner &&
-      this.owner.isFriendly(target)
+      !this.owner.canAttackPlayer(target)
     )
       return;
     squad.setTargetTile(this.tile);

@@ -93,6 +93,12 @@ export class AttackingTroopsController implements Controller {
     seed: number;
   }> = [];
   private routeCache = new Map<string, number[]>();
+  private previewRoute: {
+    unitID: number;
+    start: number;
+    untilMs: number;
+    route: number[];
+  } | null = null;
 
   constructor(
     private readonly game: GameView,
@@ -381,6 +387,25 @@ export class AttackingTroopsController implements Controller {
         ? slot.srcY + (slot.dstY - slot.srcY) * motion
         : this.game.y(unit.tile());
       const target = unit.targetTile();
+      const nearBarracks =
+        selected &&
+        this.game
+          .units(UnitType.Barracks)
+          .some(
+            (barracks) =>
+              barracks.isActive() &&
+              !barracks.state.underConstruction &&
+              barracks.owner() === unit.owner() &&
+              barracks.tile() === unit.tile(),
+          );
+      const order =
+        nearBarracks && unit.troops() < maxTroops
+          ? "reinforce"
+          : target === undefined || target === unit.tile()
+            ? "hold"
+            : this.game.owner(target) === unit.owner()
+              ? "move"
+              : "attack";
       const preview =
         selected && this.mouseTile
           ? this.game.ref(this.mouseTile.x, this.mouseTile.y)
@@ -427,7 +452,7 @@ export class AttackingTroopsController implements Controller {
       out.push({
         x,
         y: y - labelOffset,
-        text: `${unit.type() === UnitType.Infantry ? "I" : "S"} ${renderTroops(unit.troops())}`,
+        text: `${unit.type() === UnitType.Infantry ? "I" : "S"} ${renderTroops(unit.troops())}${selected ? ` · ${translateText(`tactical.orders.${order}`)}` : ""}`,
         colorR: selected ? 1 : own ? OUTGOING_R : INCOMING_R,
         colorG: selected ? 0.85 : own ? OUTGOING_G : INCOMING_G,
         colorB: selected ? 0.2 : own ? OUTGOING_B : INCOMING_B,
@@ -487,6 +512,17 @@ export class AttackingTroopsController implements Controller {
     const cacheKey = `${unit.id()}:${start}:${target}`;
     const cached = this.routeCache.get(cacheKey);
     if (cached) return cached;
+    // A moving cursor can request a 12k-tile BFS every animation frame.
+    // Keep the previous preview for a few frames while the mouse moves.
+    const preview = unit.id() === this.selectedSquadId;
+    if (
+      preview &&
+      this.previewRoute?.unitID === unit.id() &&
+      this.previewRoute.start === start &&
+      performance.now() < this.previewRoute.untilMs
+    ) {
+      return this.previewRoute.route;
+    }
 
     const targetOwner = this.game.owner(target);
     if (
@@ -540,6 +576,14 @@ export class AttackingTroopsController implements Controller {
     }
     route.reverse();
     this.routeCache.set(cacheKey, route);
+    if (preview) {
+      this.previewRoute = {
+        unitID: unit.id(),
+        start,
+        untilMs: performance.now() + 100,
+        route,
+      };
+    }
     return route;
   }
 

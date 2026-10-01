@@ -5,12 +5,31 @@ import { MoveSquadExecution } from "../MoveSquadExecution";
 
 /** Recruit and order a small number of tactical squads for offline tribes. */
 export function maybeUseOfflineSquads(game: Game, tribe: Player): boolean {
-  if (
-    !tribe
-      .units(UnitType.Barracks)
-      .some((b) => b.isActive() && !b.isUnderConstruction())
-  )
-    return false;
+  const barracks = tribe
+    .units(UnitType.Barracks)
+    .find(
+      (b) =>
+        b.isActive() &&
+        !b.isUnderConstruction() &&
+        game.owner(b.tile()) === tribe,
+    );
+  if (!barracks) return false;
+
+  // Pull depleted squads back to the barracks for paid replacements.
+  for (const unit of tribe.units(UnitType.Infantry, UnitType.Sniper)) {
+    const fullStrength = unit.type() === UnitType.Sniper ? 120 : 300;
+    if (
+      unit.isActive() &&
+      unit.troops() < fullStrength * 0.35 &&
+      unit.tile() !== barracks.tile() &&
+      unit.targetTile() !== barracks.tile()
+    ) {
+      game.addExecution(
+        new MoveSquadExecution(tribe, unit.id(), barracks.tile()),
+      );
+      return true;
+    }
+  }
 
   const neighbors: TileRef[] = [0, 0, 0, 0];
   let frontier: TileRef | undefined;
@@ -42,6 +61,14 @@ export function maybeUseOfflineSquads(game: Game, tribe: Player): boolean {
 
   for (const unit of tribe.units(UnitType.Infantry, UnitType.Sniper)) {
     if (!unit.isActive() || unit.targetTile() !== undefined) continue;
+    if (unit.troops() < (unit.type() === UnitType.Sniper ? 120 : 300) * 0.35)
+      continue;
+    // Snipers support a battle; they cannot claim neutral territory alone.
+    if (
+      unit.type() === UnitType.Sniper &&
+      !game.owner(elevatedTarget ?? target).isPlayer()
+    )
+      continue;
     game.addExecution(
       new MoveSquadExecution(
         tribe,
@@ -54,6 +81,8 @@ export function maybeUseOfflineSquads(game: Game, tribe: Player): boolean {
 
   const type =
     elevated !== undefined &&
+    elevatedTarget !== undefined &&
+    game.owner(elevatedTarget).isPlayer() &&
     tribe.unitCount(UnitType.Sniper) < 2 &&
     !game.config().isUnitDisabled(UnitType.Sniper)
       ? UnitType.Sniper

@@ -116,6 +116,76 @@ describe("tactical squads", () => {
     expect(human.units(UnitType.Infantry)).toHaveLength(0);
   });
 
+  test("a defending formation holds the border until it is defeated", async () => {
+    const { game, human, enemy } = await gameWithFrontier();
+    const attacker = human.buildUnit(UnitType.Infantry, game.ref(26, 21), {
+      troops: 300,
+    });
+    const guard = enemy.buildUnit(UnitType.Infantry, game.ref(27, 21), {
+      troops: 300,
+    });
+    game.addExecution(new SquadExecution(attacker));
+    game.addExecution(
+      new MoveSquadExecution(human, attacker.id(), guard.tile()),
+    );
+    executeTicks(game, 9);
+    expect(guard.troops()).toBeLessThan(300);
+    expect(attacker.isActive()).toBe(true);
+    expect(game.owner(guard.tile())).toBe(enemy);
+  });
+
+  test("a stationary infantry squad protects a neighboring border", async () => {
+    const { game, human, enemy } = await gameWithFrontier();
+    const guard = human.buildUnit(UnitType.Infantry, game.ref(26, 21), {
+      troops: 300,
+    });
+    const invader = enemy.buildUnit(UnitType.Infantry, game.ref(27, 21), {
+      troops: 300,
+    });
+    game.addExecution(new SquadExecution(guard));
+    executeTicks(game, 9);
+    expect(invader.troops()).toBeLessThan(300);
+    expect(guard.targetTile()).toBeUndefined();
+  });
+
+  test("mountain cover reduces actual volley losses; nearby snipers increase them", async () => {
+    const fire = async (defenderMountain: boolean, supported: boolean) => {
+      const { game, human, enemy } = await gameWithFrontier();
+      const border = game.ref(26, 21);
+      const target = game.ref(27, 21);
+      if (defenderMountain) game.map().setMagnitude(target, 25);
+      const attacker = human.buildUnit(UnitType.Infantry, border, {
+        troops: 300,
+      });
+      const guard = enemy.buildUnit(UnitType.Infantry, target, { troops: 300 });
+      if (supported) {
+        human.buildUnit(UnitType.Sniper, game.ref(25, 21), { troops: 120 });
+      }
+      game.addExecution(new SquadExecution(attacker));
+      executeTicks(game, 9);
+      return 300 - guard.troops();
+    };
+    const plainLosses = await fire(false, false);
+    expect(await fire(true, false)).toBeLessThan(plainLosses);
+    expect(await fire(false, true)).toBeGreaterThan(plainLosses);
+  });
+
+  test("barracks replenish a retreating squad from the owner's reserve", async () => {
+    const { game, human } = await gameWithFrontier();
+    const unit = human.buildUnit(UnitType.Infantry, game.ref(26, 21), {
+      troops: 80,
+    });
+    game.addExecution(new SquadExecution(unit));
+    const reserve = human.troops();
+    expect(maybeUseOfflineSquads(game, human)).toBe(true);
+    executeTicks(game, 2);
+    expect(unit.targetTile()).toBe(game.ref(20, 20));
+    executeTicks(game, 90);
+    expect(unit.tile()).toBe(game.ref(20, 20));
+    expect(unit.troops()).toBeGreaterThan(80);
+    expect(human.troops()).toBe(reserve - (unit.troops() - 80));
+  });
+
   test("offline bots recruit squads and issue orders at a frontier", async () => {
     const { game, human, enemy } = await gameWithFrontier();
     // Use the existing human as a bot-like AI participant: behavior only

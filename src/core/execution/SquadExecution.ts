@@ -9,12 +9,19 @@ import type {
 } from "../snapshot/SnapshotContext";
 import { zRef } from "../snapshot/SnapshotType";
 import { AttackExecution } from "./AttackExecution";
+import { squadVolleyLosses } from "./utils/SquadCombat";
 
 /** Orders keep squads on connected friendly land. Infantry spend their troops
  * on a normal border attack; snipers provide fire support without capturing. */
 export class SquadExecution implements Execution {
   private game: Game;
   private active = true;
+  // Derived route data is deliberately excluded from snapshots; restored
+  // executions find a fresh route against the restored ownership map.
+  private route: TileRef[] = [];
+  private routeIndex = 0;
+  private routeTarget: TileRef | undefined;
+  private routeOwnerVersion = -1;
 
   constructor(private squad: Unit) {}
 
@@ -33,13 +40,33 @@ export class SquadExecution implements Execution {
       this.active = false;
       return;
     }
-    const target = this.squad.targetTile();
-    if (target === undefined || ticks % 8 !== this.squad.id() % 8) return;
+    if (ticks % 8 !== this.squad.id() % 8) return;
+    let target = this.squad.targetTile();
+    if (target === this.squad.tile()) {
+      this.squad.setTargetTile(undefined);
+      target = undefined;
+    }
+    // A move to friendly land is an explicit reposition/retreat order.
+    // Otherwise a squad holds its ground and fights hostile formations first.
+    if (
+      (target === undefined ||
+        this.game.owner(target) !== owner ||
+        target === this.squad.tile()) &&
+      this.engageEnemySquad()
+    )
+      return;
+    this.reinforceAtBarracks();
+    if (target === undefined) return;
     const map = this.game.map();
     const targetOwner = this.game.owner(target);
     const enemy = targetOwner !== owner;
-    if (enemy && targetOwner.isPlayer() && owner.isFriendly(targetOwner)) {
+    if (
+      enemy &&
+      targetOwner.isPlayer() &&
+      !owner.canAttackPlayer(targetOwner)
+    ) {
       this.squad.setTargetTile(undefined);
+      this.route = [];
       return;
     }
     const range = this.squad.type() === UnitType.Sniper ? 3 : 1;
@@ -80,13 +107,91 @@ export class SquadExecution implements Execution {
       return;
     }
 
-    if (!enemy && target === this.squad.tile()) {
-      this.squad.setTargetTile(undefined);
-      return;
+    const start = this.squad.tile();
+    if (
+      this.routeTarget !== target ||
+      this.routeOwnerVersion !== owner.tileChangeVersion() ||
+      this.routeIndex >= this.route.length ||
+      this.game.owner(this.route[this.routeIndex]) !== owner
+    ) {
+      this.route = this.findRoute(start, target, enemy ? range : 0);
+      this.routeIndex = 0;
+      this.routeTarget = target;
+      this.routeOwnerVersion = owner.tileChangeVersion();
     }
+    const step = this.route[this.routeIndex++];
+    if (step !== undefined) this.squad.move(step);
+  }
+
+  private reinforceAtBarracks(): void {
+    const owner = this.squad.owner();
+    const type = this.squad.type();
+    const maxTroops = type === UnitType.Sniper ? 120 : 300;
+    if (this.squad.troops() >= maxTroops) return;
+    const atBarracks = owner
+      .units(UnitType.Barracks)
+      .some(
+        (b) =>
+          b.isActive() &&
+          !b.isUnderConstruction() &&
+          b.tile() === this.squad.tile(),
+      );
+    if (!atBarracks) return;
+    // Replacements are taken from the normal reserve. No free troops are made.
+    const replacements = owner.removeTroops(
+      Math.min(20, maxTroops - this.squad.troops()),
+    );
+    if (replacements > 0)
+      this.squad.setTroops(this.squad.troops() + replacements);
+  }
+
+  private engageEnemySquad(): boolean {
+    const owner = this.squad.owner();
+    const range = this.squad.type() === UnitType.Sniper ? 3 : 1;
+    const opponents = this.game
+      .nearbyUnits(this.squad.tile(), range, [
+        UnitType.Infantry,
+        UnitType.Sniper,
+      ])
+      .filter(
+        ({ unit }) =>
+          unit !== this.squad &&
+          unit.owner().isPlayer() &&
+          owner.canAttackPlayer(unit.owner()),
+      );
+    if (opponents.length === 0) return false;
+    opponents.sort(
+      (a, b) => a.distSquared - b.distSquared || a.unit.id() - b.unit.id(),
+    );
+    const defender = opponents[0].unit;
+    const map = this.game.map();
+    const hasSniperSupport =
+      this.squad.type() === UnitType.Infantry &&
+      this.game.hasUnitNearby(
+        this.squad.tile(),
+        3,
+        UnitType.Sniper,
+        owner.id(),
+      );
+    const losses = squadVolleyLosses(
+      this.squad.type() as UnitType.Infantry | UnitType.Sniper,
+      this.squad.troops(),
+      map.terrainType(this.squad.tile()),
+      map.terrainType(defender.tile()),
+      hasSniperSupport,
+    );
+    defender.setTroops(defender.troops() - losses);
+    if (defender.troops() <= 0) defender.delete(true, owner);
+    return true;
+  }
+
+  private findRoute(start: TileRef, target: TileRef, range: number): TileRef[] {
     // BFS finds the nearest owned tile in range of the destination. Cardinal
     // neighbors and bounded exploration make the outcome deterministic.
-    const start = this.squad.tile();
+    const map = this.game.map();
+    const owner = this.squad.owner();
+    const distance = (a: TileRef, b: TileRef) =>
+      Math.abs(map.x(a) - map.x(b)) + Math.abs(map.y(a) - map.y(b));
     const queue: TileRef[] = [start];
     const parent = new Map<TileRef, TileRef>([[start, start]]);
     const neighbors: TileRef[] = [0, 0, 0, 0];
@@ -100,7 +205,7 @@ export class SquadExecution implements Execution {
         closest = tile;
         closestDistance = tileDistance;
       }
-      if (tileDistance <= (enemy ? range : 0)) {
+      if (tileDistance <= range) {
         destination = tile;
         break;
       }
@@ -120,10 +225,15 @@ export class SquadExecution implements Execution {
     // Long journeys advance in bounded sections rather than searching the
     // entire world in one simulation tick.
     destination ??= closest;
-    if (destination === undefined || destination === start) return;
+    if (destination === undefined || destination === start) return [];
+    const route: TileRef[] = [];
     let step = destination;
-    while (parent.get(step) !== start) step = parent.get(step)!;
-    this.squad.move(step);
+    while (step !== start) {
+      route.push(step);
+      step = parent.get(step)!;
+    }
+    route.reverse();
+    return route;
   }
 
   isActive(): boolean {
@@ -142,6 +252,10 @@ export class SquadExecution implements Execution {
     this.squad = r.unit(s.squad);
     this.active = s.active;
     this.game = r.game;
+    this.route = [];
+    this.routeIndex = 0;
+    this.routeTarget = undefined;
+    this.routeOwnerVersion = -1;
   }
 }
 

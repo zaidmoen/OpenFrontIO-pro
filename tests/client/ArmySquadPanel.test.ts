@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import "../../src/client/hud/layers/ControlPanel";
 import type { ControlPanel } from "../../src/client/hud/layers/ControlPanel";
 import { UnitSelectionEvent } from "../../src/client/InputHandler";
+import { MoveSquadIntentEvent } from "../../src/client/Transport";
 import type { UIState } from "../../src/client/UIState";
 import type { GameView, UnitView } from "../../src/client/view";
 import { EventBus } from "../../src/core/EventBus";
@@ -27,6 +28,7 @@ describe("army and squad panel", () => {
       type: () => UnitType.Infantry,
       troops: () => 300,
       isActive: () => true,
+      tile: () => 421,
     } as unknown as UnitView;
     (panel as unknown as { _squads: UnitView[] })._squads = [unit];
     (panel as unknown as { _troops: number })._troops = 12_500;
@@ -58,5 +60,20 @@ describe("army and squad panel", () => {
     expect(panel.querySelector("button")?.getAttribute("aria-pressed")).toBe(
       "true",
     );
+  });
+
+  it("issues a hold order from the selected squad controls", async () => {
+    const orders: MoveSquadIntentEvent[] = [];
+    eventBus.on(MoveSquadIntentEvent, (event) => orders.push(event));
+    panel.querySelector("button")!.click();
+    await panel.updateComplete;
+    const hold = [...panel.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("army_ui.hold_position"),
+    );
+    expect(hold).toBeDefined();
+    hold!.click();
+    expect(orders).toHaveLength(1);
+    expect(orders[0].unitId).toBe(17);
+    expect(orders[0].tile).toBe(421);
   });
 });

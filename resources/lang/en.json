@@ -180,7 +180,10 @@
     "national_army": "National army",
     "special_squads": "Special squads",
     "no_squads": "No squads deployed",
-    "select_squad": "Select squad"
+    "select_squad": "Select squad",
+    "click_destination": "Click the map to move or attack",
+    "hold_position": "Hold position",
+    "return_to_barracks": "Return to barracks"
   },
   "change_username_modal": {
     "title": "Change Username",
@@ -2161,6 +2164,12 @@
   },
   "tactical": {
     "siege_preview": "ENCIRCLED · SIEGE ADVANTAGE",
+    "orders": {
+      "hold": "HOLDING",
+      "move": "MOVING",
+      "attack": "ATTACKING",
+      "reinforce": "REINFORCING"
+    },
     "terrain": {
       "mountain": "MOUNTAIN · SNIPER COVER",
       "highland": "HIGHLAND · SNIPER COVER",
