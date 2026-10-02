@@ -83,8 +83,18 @@ export class AttackingTroopsController implements Controller {
   private mouseTile: Cell | null = null;
   private previousSquads = new Map<
     number,
-    { x: number; y: number; transfersToAttack: boolean }
+    { x: number; y: number; troops: number; transfersToAttack: boolean }
   >();
+  private shots: Array<{
+    fromX: number;
+    fromY: number;
+    toX: number;
+    toY: number;
+    startMs: number;
+    hostile: boolean;
+  }> = [];
+  private reserveMarkers: ArmyMarker[] = [];
+  private reserveLabels: AttackTroopLabel[] = [];
   private squadPositions = new Map<number, Slot>();
   private destroyedSquads: Array<{
     x: number;
@@ -147,18 +157,42 @@ export class AttackingTroopsController implements Controller {
     for (const unit of this.squads) {
       if (!unit.isActive()) continue;
       visibleSquads.add(unit.id());
+      const x = this.game.x(unit.tile());
+      const y = this.game.y(unit.tile());
+      const previous = this.previousSquads.get(unit.id());
+      if (previous && unit.troops() < previous.troops) {
+        const shooter = this.squads
+          .filter(
+            (other) =>
+              other.isActive() &&
+              other.owner() !== unit.owner() &&
+              Math.abs(this.game.x(other.tile()) - x) +
+                Math.abs(this.game.y(other.tile()) - y) <=
+                (other.type() === UnitType.Sniper ? 3 : 1),
+          )
+          .sort((a, b) => a.id() - b.id())[0];
+        if (shooter && this.shots.length < 36) {
+          this.shots.push({
+            fromX: this.game.x(shooter.tile()),
+            fromY: this.game.y(shooter.tile()),
+            toX: x,
+            toY: y,
+            startMs: now,
+            hostile: shooter.owner() !== this.game.myPlayer(),
+          });
+        }
+      }
       const target = unit.targetTile();
       const transfersToAttack =
         unit.type() === UnitType.Infantry &&
         target !== undefined &&
         this.game.owner(target) !== unit.owner();
       this.previousSquads.set(unit.id(), {
-        x: this.game.x(unit.tile()),
-        y: this.game.y(unit.tile()),
+        x,
+        y,
+        troops: unit.troops(),
         transfersToAttack,
       });
-      const x = this.game.x(unit.tile());
-      const y = this.game.y(unit.tile());
       const slot = this.squadPositions.get(unit.id());
       if (!slot) {
         this.squadPositions.set(unit.id(), {
@@ -193,6 +227,10 @@ export class AttackingTroopsController implements Controller {
     this.destroyedSquads = this.destroyedSquads.filter(
       (effect) => now - effect.startMs < 650,
     );
+    this.shots = this.shots.filter((shot) => now - shot.startMs < 500);
+    if (this.userSettings.attackingTroopsOverlay() && !this.alternateView) {
+      this.updateNationalReserves();
+    }
     if (!this.userSettings.attackingTroopsOverlay() || this.alternateView) {
       if (this.attacks.size > 0) this.attacks.clear();
       return;
@@ -367,9 +405,33 @@ export class AttackingTroopsController implements Controller {
           colorG: g,
           colorB: b,
         });
+        // A single short muzzle flash per active assault, capped below.
+        if (markers.length < 180 && Math.floor(now / 420) % 2 === 0) {
+          const dx = slot.dstX - slot.srcX;
+          const dy = slot.dstY - slot.srcY;
+          const length = Math.hypot(dx, dy) || 1;
+          markers.push({
+            x: slot.curX + (dx ? dx / length : 1) * 0.45,
+            y: slot.curY + (dy / length) * 0.45,
+            directionX: dx || 1,
+            directionY: dy,
+            colorR: 1,
+            colorG: 0.79,
+            colorB: 0.3,
+            strength: 0.65,
+            selected: false,
+            sniper: false,
+            offset: 0,
+            variant: 2,
+          });
+        }
       }
     }
 
+    markers.push(...this.reserveMarkers);
+    for (const label of this.reserveLabels) {
+      out.push({ ...label, y: label.y - labelOffset });
+    }
     const ownID = this.game.myPlayer()?.smallID();
     let visibleRoutes = 0;
     for (const unit of this.squads) {
@@ -463,11 +525,90 @@ export class AttackingTroopsController implements Controller {
 
     this.appendTerrainIntel(out);
     this.appendDeathEffects(out, now);
+    for (const shot of this.shots) {
+      const progress = (now - shot.startMs) / 500;
+      markers.push({
+        x: shot.fromX + (shot.toX - shot.fromX) * progress,
+        y: shot.fromY + (shot.toY - shot.fromY) * progress,
+        directionX: shot.toX - shot.fromX,
+        directionY: shot.toY - shot.fromY,
+        colorR: shot.hostile ? 1 : 0.95,
+        colorG: shot.hostile ? 0.44 : 0.85,
+        colorB: 0.25,
+        strength: 1 - progress,
+        selected: false,
+        sniper: false,
+        offset: 0,
+        variant: 2,
+      });
+    }
 
     this.labelBuf = out;
     this.markerBuf = markers;
     this.view.setAttackTroopLabels(out);
     this.view.setArmyMarkers(markers);
+  }
+
+  /** A few markers summarize the shared reserve; no troops are duplicated. */
+  private updateNationalReserves(): void {
+    const labels: AttackTroopLabel[] = [];
+    const markers: ArmyMarker[] = [];
+    const mine = this.game.myPlayer();
+    const players = this.game.players();
+    if (mine) players.sort((a, b) => Number(b === mine) - Number(a === mine));
+    let remaining = 100;
+    for (const player of players) {
+      if (remaining <= 0) break;
+      const troops = player.troops();
+      if (troops <= 0 || player.state.tilesOwned <= 0) continue;
+      const anchor = player.state.spawnTile;
+      if (anchor === undefined) continue;
+      const centerX = this.game.x(anchor);
+      const centerY = this.game.y(anchor);
+      const own = player === mine;
+      const desired = Math.min(4, Math.ceil(troops / 3000), remaining);
+      let placed = 0;
+      // Bounded sampling: reserve markers only appear on currently owned land.
+      for (const radius of [0, 10, 22, 38, 60]) {
+        if (placed >= desired) break;
+        for (let i = 0; i < (radius ? 8 : 1) && placed < desired; i++) {
+          const x = centerX + Math.round(radius * Math.cos((i * Math.PI) / 4));
+          const y = centerY + Math.round(radius * Math.sin((i * Math.PI) / 4));
+          if (!this.game.isValidCoord(x, y)) continue;
+          const tile = this.game.ref(x, y);
+          if (this.game.owner(tile) !== player) continue;
+          markers.push({
+            x,
+            y,
+            directionX: 0,
+            directionY: -1,
+            colorR: own ? OUTGOING_R : INCOMING_R,
+            colorG: own ? OUTGOING_G : INCOMING_G,
+            colorB: own ? OUTGOING_B : INCOMING_B,
+            strength: Math.min(1, troops / 3000),
+            selected: false,
+            sniper: false,
+            offset: 0,
+            variant: 1,
+          });
+          if (own && placed === 0) {
+            labels.push({
+              x,
+              y,
+              text: `${translateText("army_ui.reserve")} ${renderTroops(troops)}`,
+              colorR: OUTGOING_R,
+              colorG: OUTGOING_G,
+              colorB: OUTGOING_B,
+              screenScale: 0.72,
+            });
+          }
+          placed++;
+          remaining--;
+        }
+      }
+    }
+    this.reserveMarkers = markers;
+    this.reserveLabels = labels;
   }
 
   private appendRouteDots(

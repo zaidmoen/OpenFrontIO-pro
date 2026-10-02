@@ -33,6 +33,7 @@ import {
 } from "../snapshot/SnapshotType";
 import { assertNever } from "../Util";
 import { FlatBinaryHeap } from "./utils/FlatBinaryHeap"; // adjust path if needed
+import { militaryPower } from "./utils/SquadCombat";
 
 const malusForRetreat = 25;
 export class AttackExecution implements Execution {
@@ -423,13 +424,7 @@ export class AttackExecution implements Execution {
   }
 
   private militaryPower(player: Player): number {
-    let barracksLevels = 0;
-    for (const barracks of player.units(UnitType.Barracks)) {
-      if (barracks.isActive() && !barracks.isUnderConstruction()) {
-        barracksLevels += barracks.level();
-      }
-    }
-    return this.mg.config().barracksMilitaryPower(barracksLevels);
+    return militaryPower(this.mg, player);
   }
 
   private rejectIncomingAllianceRequests(target: Player) {

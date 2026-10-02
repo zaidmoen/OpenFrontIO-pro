@@ -49,7 +49,12 @@ export function maybeUseOfflineSquads(game: Game, tribe: Player): boolean {
         continue;
       frontier ??= tile;
       target ??= next;
-      if (game.map().terrainType(tile) !== TerrainType.Plains) {
+      // Snipers support battles against players; an elevated neutral border
+      // must not prevent us from finding an elevated enemy frontier later.
+      if (
+        defender.isPlayer() &&
+        game.map().terrainType(tile) !== TerrainType.Plains
+      ) {
         elevated ??= tile;
         elevatedTarget ??= next;
       }

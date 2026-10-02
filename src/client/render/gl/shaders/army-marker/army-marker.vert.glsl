@@ -6,6 +6,7 @@ layout(location = 1) in vec4 aPositionDirection;
 layout(location = 2) in vec4 aColorStrength;
 layout(location = 3) in vec2 aFlags;
 layout(location = 4) in float aOffset;
+layout(location = 5) in float aVariant;
 
 uniform mat3 uCamera;
 uniform float uZoom;
@@ -15,6 +16,7 @@ flat out vec3 vColor;
 flat out float vStrength;
 flat out float vSelected;
 flat out float vSniper;
+flat out float vVariant;
 
 void main() {
   vec2 direction = aPositionDirection.zw;
@@ -26,6 +28,7 @@ void main() {
   vStrength = aColorStrength.a;
   vSelected = aFlags.x;
   vSniper = aFlags.y;
+  vVariant = aVariant;
   // A small screen-sized footprint stays readable at any map zoom.
   vec2 screenOffset = (right * aQuad.x + direction * -aQuad.y) * 9.0 + right * aOffset;
   vec2 center = aPositionDirection.xy + vec2(0.5);

@@ -170,6 +170,51 @@ describe("tactical squads", () => {
     expect(await fire(false, true)).toBeGreaterThan(plainLosses);
   });
 
+  test("a defense post shelters a smaller formation during a real skirmish", async () => {
+    const fight = async (protectedByPost: boolean) => {
+      const { game, human, enemy } = await gameWithFrontier();
+      const attacker = human.buildUnit(UnitType.Infantry, game.ref(26, 21), {
+        troops: 300,
+      });
+      const guard = enemy.buildUnit(UnitType.Infantry, game.ref(27, 21), {
+        troops: 180,
+      });
+      if (protectedByPost) {
+        enemy.buildUnit(UnitType.DefensePost, guard.tile(), {});
+      }
+      game.addExecution(new SquadExecution(attacker));
+      executeTicks(game, 9);
+      return 180 - guard.troops();
+    };
+    expect(await fight(true)).toBeLessThan(await fight(false));
+  });
+
+  test("completed barracks increase squad firepower, and enemy training resists it", async () => {
+    const fight = async (
+      attackerTrained: boolean,
+      defenderTrained: boolean,
+    ) => {
+      const { game, human, enemy } = await gameWithFrontier();
+      if (!attackerTrained)
+        human.units(UnitType.Barracks)[0].setUnderConstruction(true);
+      if (defenderTrained)
+        enemy.buildUnit(UnitType.Barracks, game.ref(27, 21), {});
+      const attacker = human.buildUnit(UnitType.Infantry, game.ref(26, 21), {
+        troops: 300,
+      });
+      const guard = enemy.buildUnit(UnitType.Infantry, game.ref(27, 21), {
+        troops: 300,
+      });
+      game.addExecution(new SquadExecution(attacker));
+      executeTicks(game, 9);
+      return 300 - guard.troops();
+    };
+    const untrained = await fight(false, false);
+    const trained = await fight(true, false);
+    expect(trained).toBeGreaterThan(untrained);
+    expect(await fight(true, true)).toBeLessThan(trained);
+  });
+
   test("barracks replenish a retreating squad from the owner's reserve", async () => {
     const { game, human } = await gameWithFrontier();
     const unit = human.buildUnit(UnitType.Infantry, game.ref(26, 21), {

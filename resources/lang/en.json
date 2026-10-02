@@ -178,6 +178,7 @@
   "army_ui": {
     "title": "Army and special squads",
     "national_army": "National army",
+    "reserve": "Reserve",
     "special_squads": "Special squads",
     "no_squads": "No squads deployed",
     "select_squad": "Select squad",

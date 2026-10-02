@@ -9,7 +9,7 @@ import type {
 } from "../snapshot/SnapshotContext";
 import { zRef } from "../snapshot/SnapshotType";
 import { AttackExecution } from "./AttackExecution";
-import { squadVolleyLosses } from "./utils/SquadCombat";
+import { militaryPower, squadVolleyLosses } from "./utils/SquadCombat";
 
 /** Orders keep squads on connected friendly land. Infantry spend their troops
  * on a normal border attack; snipers provide fire support without capturing. */
@@ -179,6 +179,14 @@ export class SquadExecution implements Execution {
       map.terrainType(this.squad.tile()),
       map.terrainType(defender.tile()),
       hasSniperSupport,
+      militaryPower(this.game, owner),
+      militaryPower(this.game, defender.owner()),
+      this.game.hasUnitNearby(
+        defender.tile(),
+        this.game.config().defensePostRange(),
+        UnitType.DefensePost,
+        defender.owner().id(),
+      ),
     );
     defender.setTroops(defender.troops() - losses);
     if (defender.troops() <= 0) defender.delete(true, owner);

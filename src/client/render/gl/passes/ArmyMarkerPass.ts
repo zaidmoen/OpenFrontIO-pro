@@ -16,10 +16,12 @@ export interface ArmyMarker {
   selected: boolean;
   sniper: boolean;
   offset: number;
+  /** 0: deployed formation, 1: shared national reserve, 2: brief shot. */
+  variant?: number;
 }
 
-// center(2), direction(2), color(3), strength, selected, sniper, lateral offset
-const FLOATS_PER_MARKER = 11;
+// center(2), direction(2), color(3), strength, selected, sniper, offset, variant
+const FLOATS_PER_MARKER = 12;
 
 /** Instanced arrows and trails: a single draw call regardless of army size. */
 export class ArmyMarkerPass {
@@ -67,6 +69,9 @@ export class ArmyMarkerPass {
     gl.vertexAttribDivisor(3, 1);
     gl.enableVertexAttribArray(4);
     gl.vertexAttribPointer(4, 1, gl.FLOAT, false, stride, 40);
+    gl.enableVertexAttribArray(5);
+    gl.vertexAttribPointer(5, 1, gl.FLOAT, false, stride, 44);
+    gl.vertexAttribDivisor(5, 1);
     gl.vertexAttribDivisor(4, 1);
     gl.bindVertexArray(null);
   }
@@ -90,6 +95,7 @@ export class ArmyMarkerPass {
       data[offset + 8] = m.selected ? 1 : 0;
       data[offset + 9] = m.sniper ? 1 : 0;
       data[offset + 10] = m.offset;
+      data[offset + 11] = m.variant ?? 0;
     }
     glUpload(
       this.gl,
