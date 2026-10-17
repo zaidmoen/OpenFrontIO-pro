@@ -26,9 +26,9 @@ import type { UnitView } from "../view";
 import { GameView } from "../view";
 
 // Tactical overlay colors are player-relative, independent of territory skins.
-const OUTGOING_R = 0x4a / 255;
-const OUTGOING_G = 0xe4 / 255;
-const OUTGOING_B = 0x80 / 255;
+const OUTGOING_R = 0x3f / 255;
+const OUTGOING_G = 0xa9 / 255;
+const OUTGOING_B = 0xf5 / 255;
 const INCOMING_R = 0xf8 / 255;
 const INCOMING_G = 0x71 / 255;
 const INCOMING_B = 0x71 / 255;
@@ -37,6 +37,14 @@ const INCOMING_B = 0x71 / 255;
 const ANIM_MS = 250;
 /** Snap (no animation) when the worker reports a jump larger than this. */
 const SNAP_DISTANCE = 200;
+/** Keep tactical route previews warm between worker polls without unbounded growth. */
+const ROUTE_CACHE_TTL_MS = 200;
+const MAX_CACHED_ROUTES = 64;
+
+interface CachedRoute {
+  route: number[];
+  expiresAt: number;
+}
 
 export interface Slot {
   /** Last-rendered (interpolated) position. */
@@ -92,7 +100,7 @@ export class AttackingTroopsController implements Controller {
     startMs: number;
     seed: number;
   }> = [];
-  private routeCache = new Map<string, number[]>();
+  private routeCache = new Map<string, CachedRoute>();
 
   constructor(
     private readonly game: GameView,
@@ -134,7 +142,6 @@ export class AttackingTroopsController implements Controller {
   }
 
   tick() {
-    this.routeCache.clear();
     this.squads = this.game.units(UnitType.Infantry, UnitType.Sniper);
     const now = performance.now();
     const visibleSquads = new Set<number>();
@@ -327,7 +334,11 @@ export class AttackingTroopsController implements Controller {
     const now = performance.now();
     const out: AttackTroopLabel[] = [];
     const markers: ArmyMarker[] = [];
-    const labelOffset = 16 / Math.max(this.transformHandler.scale, 0.2);
+    const zoom = this.transformHandler.scale;
+    const lowDetail = zoom < 0.55;
+    const mediumDetail = zoom < 0.9;
+    const maxVisibleRoutes = lowDetail ? 3 : mediumDetail ? 6 : 12;
+    const labelOffset = 16 / Math.max(zoom, 0.2);
 
     for (const entry of this.attacks.values()) {
       const r = entry.isIncoming ? INCOMING_R : OUTGOING_R;
@@ -337,7 +348,8 @@ export class AttackingTroopsController implements Controller {
         const t = Math.min(1, (now - slot.startMs) / ANIM_MS);
         slot.curX = slot.srcX + (slot.dstX - slot.srcX) * t;
         slot.curY = slot.srcY + (slot.dstY - slot.srcY) * t;
-        const groups = Math.min(6, Math.ceil(entry.troops / 100));
+        const maxGroups = lowDetail ? 1 : mediumDetail ? 3 : 6;
+        const groups = Math.min(maxGroups, Math.ceil(entry.troops / 100));
         for (let i = 0; i < groups; i++) {
           markers.push({
             x: slot.curX,
@@ -350,7 +362,7 @@ export class AttackingTroopsController implements Controller {
             strength: 1,
             selected: false,
             sniper: false,
-            offset: (i - (groups - 1) / 2) * 8,
+            offset: (i - (groups - 1) / 2) * 13,
           });
         }
         out.push({
@@ -388,7 +400,9 @@ export class AttackingTroopsController implements Controller {
       // Only calculate route previews for controllable formations. Enemy
       // direction comes from its target without another breadth-first search.
       const showRoute =
-        own && (selected || (target !== undefined && visibleRoutes < 12));
+        own &&
+        (selected ||
+          (target !== undefined && visibleRoutes < maxVisibleRoutes));
       const route =
         showRoute && preview !== undefined ? this.routeTo(unit, preview) : [];
       if (showRoute && route.length > 1) {
@@ -408,7 +422,8 @@ export class AttackingTroopsController implements Controller {
           : next === undefined
             ? -1
             : this.game.y(next) - y;
-      const groups = Math.min(5, Math.ceil(unit.troops() / 100));
+      const maxGroups = lowDetail ? 1 : mediumDetail ? 3 : 5;
+      const groups = Math.min(maxGroups, Math.ceil(unit.troops() / 100));
       for (let i = 0; i < groups; i++) {
         markers.push({
           x,
@@ -421,7 +436,7 @@ export class AttackingTroopsController implements Controller {
           strength,
           selected,
           sniper: unit.type() === UnitType.Sniper,
-          offset: (i - (groups - 1) / 2) * 8,
+          offset: (i - (groups - 1) / 2) * 13,
         });
       }
       out.push({
@@ -455,8 +470,11 @@ export class AttackingTroopsController implements Controller {
     const colorR = own ? OUTGOING_R : INCOMING_R;
     const colorG = own ? OUTGOING_G : INCOMING_G;
     const colorB = own ? OUTGOING_B : INCOMING_B;
+    const zoom = this.transformHandler.scale;
+    const step = zoom < 0.55 ? 8 : zoom < 0.9 ? 4 : 2;
+    const maxDots = zoom < 0.55 ? 18 : zoom < 0.9 ? 36 : 80;
     let placed = 0;
-    for (let i = 2; i < route.length && placed < 120; i += 2) {
+    for (let i = step; i < route.length && placed < maxDots; i += step) {
       placed++;
       const tile = route[i];
       out.push({
@@ -486,7 +504,14 @@ export class AttackingTroopsController implements Controller {
     const start = unit.tile();
     const cacheKey = `${unit.id()}:${start}:${target}`;
     const cached = this.routeCache.get(cacheKey);
-    if (cached) return cached;
+    const now = performance.now();
+    if (cached && cached.expiresAt > now) {
+      // Refresh insertion order so frequently used previews survive the cap.
+      this.routeCache.delete(cacheKey);
+      this.routeCache.set(cacheKey, cached);
+      return cached.route;
+    }
+    if (cached) this.routeCache.delete(cacheKey);
 
     const targetOwner = this.game.owner(target);
     if (
@@ -494,6 +519,7 @@ export class AttackingTroopsController implements Controller {
       targetOwner !== unit.owner() &&
       unit.owner().isFriendly(targetOwner)
     ) {
+      this.cacheRoute(cacheKey, []);
       return [];
     }
     const enemy = targetOwner !== unit.owner();
@@ -535,12 +561,28 @@ export class AttackingTroopsController implements Controller {
     const route = [destination];
     while (route[route.length - 1] !== start) {
       const previous = parent.get(route[route.length - 1]);
-      if (previous === undefined) return [];
+      if (previous === undefined) {
+        this.cacheRoute(cacheKey, []);
+        return [];
+      }
       route.push(previous);
     }
     route.reverse();
-    this.routeCache.set(cacheKey, route);
+    this.cacheRoute(cacheKey, route);
     return route;
+  }
+
+  private cacheRoute(cacheKey: string, route: number[]): void {
+    this.routeCache.delete(cacheKey);
+    this.routeCache.set(cacheKey, {
+      route,
+      expiresAt: performance.now() + ROUTE_CACHE_TTL_MS,
+    });
+    while (this.routeCache.size > MAX_CACHED_ROUTES) {
+      const oldest = this.routeCache.keys().next();
+      if (oldest.done) break;
+      this.routeCache.delete(oldest.value);
+    }
   }
 
   private appendTerrainIntel(out: AttackTroopLabel[]): void {

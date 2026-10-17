@@ -64,6 +64,23 @@ describe("tactical squads", () => {
     expect(unit.isActive()).toBe(true);
   });
 
+  test("retargeting a squad replaces its cached route", async () => {
+    const { game, human } = await gameWithFrontier();
+    const start = game.ref(21, 21);
+    const firstTarget = game.ref(26, 21);
+    const newTarget = game.ref(21, 22);
+    const unit = human.buildUnit(UnitType.Infantry, start, { troops: 300 });
+    game.addExecution(new SquadExecution(unit));
+    game.addExecution(new MoveSquadExecution(human, unit.id(), firstTarget));
+
+    executeTicks(game, 16);
+    expect(unit.tile()).not.toBe(start);
+
+    game.addExecution(new MoveSquadExecution(human, unit.id(), newTarget));
+    executeTicks(game, 32);
+    expect(unit.tile()).toBe(newTarget);
+  });
+
   test("sniper fire damages enemies without claiming land", async () => {
     const { game, human, enemy } = await gameWithFrontier();
     const start = game.ref(26, 21);
