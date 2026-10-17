@@ -37,6 +37,14 @@ const INCOMING_B = 0x71 / 255;
 const ANIM_MS = 250;
 /** Snap (no animation) when the worker reports a jump larger than this. */
 const SNAP_DISTANCE = 200;
+/** Keep tactical route previews warm between worker polls without unbounded growth. */
+const ROUTE_CACHE_TTL_MS = 200;
+const MAX_CACHED_ROUTES = 64;
+
+interface CachedRoute {
+  route: number[];
+  expiresAt: number;
+}
 
 export interface Slot {
   /** Last-rendered (interpolated) position. */
@@ -92,7 +100,7 @@ export class AttackingTroopsController implements Controller {
     startMs: number;
     seed: number;
   }> = [];
-  private routeCache = new Map<string, number[]>();
+  private routeCache = new Map<string, CachedRoute>();
 
   constructor(
     private readonly game: GameView,
@@ -134,7 +142,6 @@ export class AttackingTroopsController implements Controller {
   }
 
   tick() {
-    this.routeCache.clear();
     this.squads = this.game.units(UnitType.Infantry, UnitType.Sniper);
     const now = performance.now();
     const visibleSquads = new Set<number>();
@@ -486,7 +493,14 @@ export class AttackingTroopsController implements Controller {
     const start = unit.tile();
     const cacheKey = `${unit.id()}:${start}:${target}`;
     const cached = this.routeCache.get(cacheKey);
-    if (cached) return cached;
+    const now = performance.now();
+    if (cached && cached.expiresAt > now) {
+      // Refresh insertion order so frequently used previews survive the cap.
+      this.routeCache.delete(cacheKey);
+      this.routeCache.set(cacheKey, cached);
+      return cached.route;
+    }
+    if (cached) this.routeCache.delete(cacheKey);
 
     const targetOwner = this.game.owner(target);
     if (
@@ -494,6 +508,7 @@ export class AttackingTroopsController implements Controller {
       targetOwner !== unit.owner() &&
       unit.owner().isFriendly(targetOwner)
     ) {
+      this.cacheRoute(cacheKey, []);
       return [];
     }
     const enemy = targetOwner !== unit.owner();
@@ -535,12 +550,28 @@ export class AttackingTroopsController implements Controller {
     const route = [destination];
     while (route[route.length - 1] !== start) {
       const previous = parent.get(route[route.length - 1]);
-      if (previous === undefined) return [];
+      if (previous === undefined) {
+        this.cacheRoute(cacheKey, []);
+        return [];
+      }
       route.push(previous);
     }
     route.reverse();
-    this.routeCache.set(cacheKey, route);
+    this.cacheRoute(cacheKey, route);
     return route;
+  }
+
+  private cacheRoute(cacheKey: string, route: number[]): void {
+    this.routeCache.delete(cacheKey);
+    this.routeCache.set(cacheKey, {
+      route,
+      expiresAt: performance.now() + ROUTE_CACHE_TTL_MS,
+    });
+    while (this.routeCache.size > MAX_CACHED_ROUTES) {
+      const oldest = this.routeCache.keys().next();
+      if (oldest.done) break;
+      this.routeCache.delete(oldest.value);
+    }
   }
 
   private appendTerrainIntel(out: AttackTroopLabel[]): void {
