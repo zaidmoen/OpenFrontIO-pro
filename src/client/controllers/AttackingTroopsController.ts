@@ -350,7 +350,7 @@ export class AttackingTroopsController implements Controller {
             strength: 1,
             selected: false,
             sniper: false,
-            offset: (i - (groups - 1) / 2) * 8,
+            offset: (i - (groups - 1) / 2) * 13,
           });
         }
         out.push({
@@ -421,7 +421,7 @@ export class AttackingTroopsController implements Controller {
           strength,
           selected,
           sniper: unit.type() === UnitType.Sniper,
-          offset: (i - (groups - 1) / 2) * 8,
+          offset: (i - (groups - 1) / 2) * 13,
         });
       }
       out.push({
