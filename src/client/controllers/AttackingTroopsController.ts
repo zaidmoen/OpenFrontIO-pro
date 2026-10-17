@@ -26,9 +26,9 @@ import type { UnitView } from "../view";
 import { GameView } from "../view";
 
 // Tactical overlay colors are player-relative, independent of territory skins.
-const OUTGOING_R = 0x4a / 255;
-const OUTGOING_G = 0xe4 / 255;
-const OUTGOING_B = 0x80 / 255;
+const OUTGOING_R = 0x3f / 255;
+const OUTGOING_G = 0xa9 / 255;
+const OUTGOING_B = 0xf5 / 255;
 const INCOMING_R = 0xf8 / 255;
 const INCOMING_G = 0x71 / 255;
 const INCOMING_B = 0x71 / 255;
